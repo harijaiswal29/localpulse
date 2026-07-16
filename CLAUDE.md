@@ -99,6 +99,7 @@ OLLAMA_BASE_URL=http://localhost:11434   # optional — local/free models
 MODEL_CONTENT=claude-sonnet
 MODEL_ROUTER=                        # e.g. a cheap/free model
 MODEL_INSIGHTS=
+MODEL_REPUTATION=
 
 # WhatsApp (via BSP)
 WHATSAPP_BSP_API_KEY=
@@ -123,20 +124,24 @@ LOG_LEVEL=INFO
 
 ---
 
-## Current milestone: P0 (MVP)
+## Milestone status
 
-Build the **thin vertical slice**, one vertical only (bakery). Do **not** build all five agents or multi-tenancy yet.
+**P0 — MVP: done** (2026-07-16). All DoD items met: `packs/bakery/` drives Content + Onboarding; Onboarding produces a valid `ClientContext`; Content generates a week of drafts (caption + image) into the Content Queue; owner Approve/Edit/Skip works over WhatsApp with semi-manual GBP publish; Insights produces the monthly report; `client_id` scoping is in the data model; core paths are tested.
 
-**Definition of Done for P0:**
-- [ ] `packs/bakery/` exists and drives Content + Onboarding behaviour.
-- [ ] Onboarding Agent produces a valid `ClientContext` for one real pilot shop.
-- [ ] Content Agent generates a week of drafts (caption + image) into the Content Queue.
-- [ ] Owner can **Approve / Edit / Skip** each draft via WhatsApp; approved items move to `published` (semi-manual GBP publish is acceptable).
-- [ ] Insights Agent produces a basic monthly report from collected metrics.
-- [ ] `client_id` scoping is present in the data model even though it's single-tenant.
-- [ ] Runs locally with the commands above; core paths (approval state machine, pack loading, content generation) have tests.
+**P1 — Reputation: done** (2026-07-16). Reputation Agent runs hourly review checks (cadence from the pack playbook), drafts replies in the review's own language, escalates negative/ambiguous reviews (A2 — rating ≤ 3 or complaint cues; flagged, never auto-sent), and runs the review-solicitation nudge loop through the Cost Guard. The publisher dispatches by `DraftKind` (GBP post / review reply / WhatsApp nudge); the monthly report includes review response rate. GBP reviews and replies stay semi-manual (seedable list + reply queue in `tools/gbp.py`) until API access is granted (spec §7).
 
-**Build order:** Client Context models → bakery pack → Onboarding → Content → approval flow (WhatsApp webhook + state machine) → Insights report.
+## Current milestone: P2 (Engagement)
+
+Per spec §14: add the Engagement Agent and adopt a real WhatsApp Business API/BSP.
+
+**Definition of Done for P2:**
+- [ ] Engagement Agent auto-answers FAQs and simple pre-order/booking questions **within the free 24-hour service window** (A0, near-zero cost).
+- [ ] Anything it can't confidently handle escalates to the owner (A2) — never a guessed reply.
+- [ ] Weekly offer broadcast drafts (A1); broadcasts are marketing category, priced and budget-checked by the Cost Guard.
+- [ ] A real BSP adapter behind the existing `WhatsAppTool` interface; the mock stays the default offline transport.
+- [ ] FAQ/pre-order behaviour is pack-driven (playbook), not hard-coded in the engine.
+
+**Carry-over open items:** apply for GBP API access (spec §15); confirm the approximate 2026 festival dates in `context/regional_calendar.py` before real pilots.
 
 ---
 
@@ -150,5 +155,5 @@ Build the **thin vertical slice**, one vertical only (bakery). Do **not** build 
 ## Start here
 
 1. Read `docs/multi-agent-system-spec.md`.
-2. Scaffold the repo structure above.
-3. Implement P0 in the build order, checking each item against the Definition of Done.
+2. The repo is scaffolded and P0 + P1 are built (see Milestone status). Verify with `pytest`, `ruff check .`, and `python scripts/run_pilot.py` — everything runs offline via the mock model provider and mock tools; `src/localpulse/container.py` is the composition root.
+3. Implement P2 against its Definition of Done, keeping all vertical logic in `packs/`.
