@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 
 from localpulse.context.models import ClientContext, DraftKind
 from localpulse.context.repositories import (
+    EnquiryRepository,
     MetricsRepository,
     PublishLogRepository,
     ReviewRepository,
@@ -24,11 +25,13 @@ class InsightsAgent:
         publish_log: PublishLogRepository,
         registry: ToolRegistry,
         reviews: ReviewRepository | None = None,
+        enquiries: EnquiryRepository | None = None,
     ):
         self._metrics = metrics
         self._publish_log = publish_log
         self._registry = registry
         self._reviews = reviews
+        self._enquiries = enquiries
 
     def collect_daily(self, ctx: ClientContext) -> dict[str, float]:
         """Silently pull platform metrics and persist them (daily cadence)."""
@@ -47,9 +50,7 @@ class InsightsAgent:
         views = [m.value for m in self._metrics.series("profile_views", start, end)]
         ratings = [m.value for m in self._metrics.series("avg_rating", start, end)]
         review_counts = [m.value for m in self._metrics.series("review_count", start, end)]
-        posts_published = self._publish_log.count_between(
-            start, end, kind=DraftKind.GBP_POST.value
-        )
+        posts_published = self._publish_log.count_between(start, end, kind=DraftKind.GBP_POST.value)
 
         month_name = start.strftime("%B %Y")
         lines = [f"📈 {ctx.business.name} — your month in review ({month_name})", ""]
@@ -69,6 +70,14 @@ class InsightsAgent:
             if new_reviews:
                 lines.append(
                     f"• {new_reviews} new review(s) came in and {replied} got a public reply."
+                )
+        if self._enquiries is not None:
+            handled = self._enquiries.count_between(start, end)
+            instant = self._enquiries.auto_answered_between(start, end)
+            if handled:
+                lines.append(
+                    f"• {handled} customer enquirie(s) came in on WhatsApp — "
+                    f"{instant} answered instantly, {handled - instant} passed to you."
                 )
         lines.append(f"• {posts_published} post(s) went live on your profile.")
 

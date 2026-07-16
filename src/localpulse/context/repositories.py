@@ -6,7 +6,7 @@ construction time, so cross-tenant access is impossible by design (golden rule #
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -15,8 +15,10 @@ from localpulse.context.models import ApprovalState, ClientContext, DraftItem
 from localpulse.data.models import (
     ApprovalLogRecord,
     ClientRecord,
+    ConversationRecord,
     CostLedgerRecord,
     DraftRecord,
+    EnquiryRecord,
     MetricRecord,
     PublishLogRecord,
     ReviewRecord,
@@ -278,6 +280,91 @@ class ReviewRepository(_ScopedRepository):
             ReviewRecord.replied_at < until,
         )
         return int(self._session.scalar(stmt) or 0)
+
+
+SERVICE_WINDOW = timedelta(hours=24)
+
+
+class ConversationRepository(_ScopedRepository):
+    """WhatsApp customer conversations: 24h service-window state + broadcast opt-in."""
+
+    def upsert_inbound(self, customer_number: str, customer_name: str = "") -> ConversationRecord:
+        """Record an inbound customer message — (re)opens the free service window."""
+        record = self.get(customer_number)
+        if record is None:
+            record = ConversationRecord(
+                client_id=self.client_id,
+                customer_number=customer_number,
+                customer_name=customer_name,
+            )
+            self._session.add(record)
+        record.last_inbound_at = datetime.now(UTC)
+        if customer_name:
+            record.customer_name = customer_name
+        self._session.commit()
+        return record
+
+    def get(self, customer_number: str) -> ConversationRecord | None:
+        stmt = select(ConversationRecord).where(
+            ConversationRecord.client_id == self.client_id,
+            ConversationRecord.customer_number == customer_number,
+        )
+        return self._session.scalars(stmt).first()
+
+    def window_open(self, customer_number: str) -> bool:
+        record = self.get(customer_number)
+        if record is None:
+            return False
+        last = record.last_inbound_at
+        if last.tzinfo is None:  # SQLite drops tzinfo on round-trip
+            last = last.replace(tzinfo=UTC)
+        return datetime.now(UTC) - last < SERVICE_WINDOW
+
+    def opt_out(self, customer_number: str) -> None:
+        record = self.get(customer_number)
+        if record is not None:
+            record.opt_in = False
+            self._session.commit()
+
+    def opted_in_numbers(self) -> list[str]:
+        stmt = (
+            select(ConversationRecord.customer_number)
+            .where(
+                ConversationRecord.client_id == self.client_id,
+                ConversationRecord.opt_in.is_(True),
+            )
+            .order_by(ConversationRecord.created_at)
+        )
+        return list(self._session.scalars(stmt))
+
+
+class EnquiryRepository(_ScopedRepository):
+    """Audit log of inbound customer messages and how they were handled."""
+
+    def record(self, customer_number: str, text: str, action: str) -> None:
+        self._session.add(
+            EnquiryRecord(
+                client_id=self.client_id,
+                customer_number=customer_number,
+                text=text,
+                action=action,
+            )
+        )
+        self._session.commit()
+
+    def count_between(self, since: datetime, until: datetime) -> int:
+        return int(self._session.scalar(self._count_stmt(since, until)) or 0)
+
+    def auto_answered_between(self, since: datetime, until: datetime) -> int:
+        stmt = self._count_stmt(since, until).where(EnquiryRecord.action.in_(["faq", "preorder"]))
+        return int(self._session.scalar(stmt) or 0)
+
+    def _count_stmt(self, since: datetime, until: datetime):
+        return select(func.count(EnquiryRecord.id)).where(
+            EnquiryRecord.client_id == self.client_id,
+            EnquiryRecord.at >= since,
+            EnquiryRecord.at < until,
+        )
 
 
 class CostLedgerRepository(_ScopedRepository):

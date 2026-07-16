@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     model_router: str = "mock"
     model_insights: str = "mock"
     model_reputation: str = "mock"
+    model_engagement: str = "mock"
 
     whatsapp_bsp_api_key: str = ""
     whatsapp_phone_number_id: str = ""
@@ -46,6 +47,7 @@ class Settings(BaseSettings):
             "router": self.model_router or "mock",
             "insights": self.model_insights or "mock",
             "reputation": self.model_reputation or "mock",
+            "engagement": self.model_engagement or "mock",
         }
 
 

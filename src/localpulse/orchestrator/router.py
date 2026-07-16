@@ -37,6 +37,15 @@ class TaskRouter:
                 drafted = services.reputation_agent.check_reviews(ctx)
                 if drafted:
                     logger.info("drafted %d review reply draft(s) for %s", len(drafted), client_id)
+            elif task == "engagement.weekly_broadcast":
+                draft = services.engagement_agent.draft_weekly_broadcast(ctx)
+                if draft:
+                    logger.info(
+                        "drafted weekly broadcast %s for %s (%d recipient(s))",
+                        draft.short_id,
+                        client_id,
+                        len(draft.meta.get("recipients", [])),
+                    )
             elif task == "insights.collect":
                 services.insights_agent.collect_daily(ctx)
             elif task == "insights.monthly_report":

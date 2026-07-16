@@ -107,7 +107,40 @@ def main() -> None:
             print(f"Reply published as {action.external_ref}")
             print(f"Semi-manual GBP reply queue now holds {len(gbp.reply_queue)} item(s).")
 
-        print("\n=== 7. Insights ===")
+        print("\n=== 7. Engagement: customers message the shop on WhatsApp ===")
+        agent = services.engagement_agent
+        for number, name, text in [
+            ("+919900112233", "Priya", "What time are you open till on Sunday?"),
+            ("+919900445566", "Arjun", "I want to order a modak box for Saturday"),
+            ("+919900778899", "", "Do you make sugar-free vegan black forest pastries?"),
+        ]:
+            result = agent.handle_inbound(ctx, number, text, name)
+            print(f'  {name or number}: "{text}"')
+            print(f"    -> [{result.action}] {result.reply}")
+
+        print("\n=== 8. Engagement: weekly offer broadcast (A1, marketing) ===")
+        broadcast = agent.draft_weekly_broadcast(ctx)
+        if broadcast is not None:
+            print(
+                f"  Draft [{broadcast.short_id}] -> {len(broadcast.meta['recipients'])} "
+                f"opted-in customer(s):\n  {broadcast.caption}"
+            )
+            draft, approval_log_id = services.state_machine.approve(broadcast.id, actor="owner")
+            action = publish_draft(
+                draft_id=draft.id,
+                approval_log_id=approval_log_id,
+                queue=services.queue,
+                publish_log=services.publish_log,
+                state_machine=services.state_machine,
+                registry=container.registry,
+                cost_guard=services.cost_guard,
+            )
+            print(
+                f"  Published as {action.external_ref}; "
+                f"month's spend so far: ₹{services.cost_guard.spend_this_month():.2f}"
+            )
+
+        print("\n=== 9. Insights ===")
         services.insights_agent.collect_daily(ctx)
         now = datetime.now(UTC)
         print(services.insights_agent.monthly_report(ctx, now.year, now.month))

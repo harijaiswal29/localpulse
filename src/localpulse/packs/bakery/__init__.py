@@ -4,6 +4,8 @@ from localpulse.context.models import OfferingType
 from localpulse.packs.base import (
     CadenceRule,
     ContentTemplate,
+    EngagementPlaybook,
+    FaqEntry,
     Guardrails,
     OfferingSchema,
     OnboardingQuestion,
@@ -142,8 +144,54 @@ PACK = VerticalPack(
             CadenceRule(task="insights.collect", cron="30 21 * * *"),
             CadenceRule(task="insights.monthly_report", cron="0 9 1 * *"),
             CadenceRule(task="approvals.sweep_expired", cron="0 * * * *"),
+            # Friday morning: draft the weekend offer broadcast for owner approval
+            CadenceRule(task="engagement.weekly_broadcast", cron="0 11 * * 5"),
         ],
         review_reply_style="thank warmly, mention the item they praised, invite them back",
+        engagement=EngagementPlaybook(
+            faqs=[
+                FaqEntry(
+                    id="hours",
+                    patterns=["open", "close", "closing", "timing", "hours", "kiti vajta"],
+                    answer="We're open {hours}. See you soon at {business_name}! 😊",
+                ),
+                FaqEntry(
+                    id="location",
+                    patterns=["where", "address", "location", "directions", "reach you"],
+                    answer=(
+                        "You'll find us at {address}, {city} — just search "
+                        "{business_name} on Google Maps for directions."
+                    ),
+                ),
+                FaqEntry(
+                    id="menu",
+                    patterns=["menu", "price", "rate", "cost", "what do you have"],
+                    answer=(
+                        "Fresh at {business_name} today: {menu}. "
+                        "Message us here to reserve anything! 🧁"
+                    ),
+                ),
+            ],
+            preorder_cues=["order", "book", "pre-order", "preorder", "need a cake", "kg"],
+            vague_terms=["cake", "cakes", "bread", "box", "special"],
+            preorder_ack=(
+                "Lovely choice, {customer_name}! {offering_name} is {price}. "
+                "I've passed your request to our team — they'll confirm your "
+                "order right here shortly. 🎂"
+            ),
+            escalation_ack=(
+                "Thanks for your message! Let me check with the owner — "
+                "you'll hear back right here shortly."
+            ),
+            opt_out_ack=(
+                "Done — you won't get offers from us anymore. You're always "
+                "welcome to message us here anytime."
+            ),
+            broadcast_prompt=(
+                "Write this week's short WhatsApp offer featuring the item. Warm and "
+                "homely, no pushy sales language, invite a reply to reserve."
+            ),
+        ),
     ),
     guardrails=Guardrails(
         banned_terms=[

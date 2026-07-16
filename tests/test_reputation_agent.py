@@ -62,12 +62,12 @@ class TestReplyGuardrails:
 
     def test_empty_rejected(self):
         pack = load_pack("bakery")
-        assert check_reply_guardrails("   ", pack) == "empty reply"
+        assert check_reply_guardrails("   ", pack) == "empty text"
 
     def test_too_long_rejected(self):
         pack = load_pack("bakery")
         reason = check_reply_guardrails("x" * (pack.guardrails.max_caption_chars + 1), pack)
-        assert reason == "reply too long"
+        assert reason == "text too long"
 
     def test_clean_reply_passes(self):
         pack = load_pack("bakery")

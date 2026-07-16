@@ -16,7 +16,7 @@ from localpulse.context.repositories import (
     ReviewRepository,
 )
 from localpulse.orchestrator.approval import ApprovalStateMachine
-from localpulse.orchestrator.cost_guard import CostGuard, MessagePurpose
+from localpulse.orchestrator.cost_guard import CostGuard, MessageCategory, MessagePurpose
 from localpulse.orchestrator.messaging import send_whatsapp
 from localpulse.orchestrator.tool_registry import ToolRegistry
 
@@ -75,6 +75,27 @@ def publish_draft(
             purpose=MessagePurpose.NOTIFICATION,
             within_service_window=bool(draft.meta.get("within_service_window", False)),
         )
+        channel = Channel.WHATSAPP
+    elif draft.kind == DraftKind.WHATSAPP_BROADCAST:
+        if cost_guard is None:
+            raise ValueError("publishing a broadcast requires the cost guard")
+        recipients = [str(number) for number in draft.meta.get("recipients", [])]
+        if not recipients:
+            raise ValueError("broadcast draft has no recipients")
+        # All-or-nothing: verify the whole batch fits the budget before the first
+        # send; a BudgetExceededError leaves the draft approved and retryable.
+        cost_guard.ensure_affordable(MessageCategory.MARKETING, len(recipients))
+        whatsapp = registry.get(draft.client_id, "whatsapp")
+        for number in recipients:
+            send_whatsapp(
+                guard=cost_guard,
+                tool=whatsapp,
+                to=number,
+                body=draft.caption,
+                purpose=MessagePurpose.MARKETING_BROADCAST,
+                within_service_window=False,
+            )
+        external_ref = f"wa-broadcast:{len(recipients)}"
         channel = Channel.WHATSAPP
     else:
         gbp = registry.get(draft.client_id, "gbp")

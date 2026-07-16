@@ -63,5 +63,12 @@ class CostGuard:
         self._ledger.record(category.value, cost, note)
         return cost
 
+    def ensure_affordable(self, category: MessageCategory, count: int = 1) -> None:
+        """Pre-check a batch (e.g. a broadcast) without recording anything, so a
+        multi-recipient send is all-or-nothing instead of stopping halfway."""
+        cost = CATEGORY_COST_INR[category] * count
+        if cost > 0 and self._ledger.spend_this_month() + cost > self._budget:
+            raise BudgetExceededError(self._ledger.client_id, self._budget)
+
     def spend_this_month(self) -> float:
         return self._ledger.spend_this_month()

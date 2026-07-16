@@ -43,11 +43,38 @@ class CadenceRule(BaseModel):
     cron: str
 
 
+class FaqEntry(BaseModel):
+    """A deterministic FAQ the Engagement Agent may auto-answer (A0). The answer is
+    a template filled from the Client Context — placeholders like {business_name},
+    {hours}, {address}, {city}, {phone}, {menu} — so it can never hallucinate."""
+
+    id: str
+    patterns: list[str]  # lowercase substrings that trigger this FAQ
+    answer: str
+
+
+class EngagementPlaybook(BaseModel):
+    """Pack-driven WhatsApp behaviour (spec §5.4). The matching machinery is engine
+    code; every cue, template, and vertical judgement call lives here in the pack."""
+
+    faqs: list[FaqEntry] = []
+    preorder_cues: list[str] = []  # substrings that signal an order/booking attempt
+    # words too generic to identify a single offering on their own (e.g. "cake") —
+    # a pre-order mentioning only these escalates instead of guessing
+    vague_terms: list[str] = []
+    # template placeholders: {offering_name} {price} {customer_name} + context fields
+    preorder_ack: str = ""
+    escalation_ack: str = ""  # holding reply while the owner is looped in
+    opt_out_ack: str = ""  # confirmation after STOP/unsubscribe
+    broadcast_prompt: str = ""  # instruction for the weekly offer broadcast draft
+
+
 class Playbook(BaseModel):
     posts_per_week: int = 3
     post_weekdays: list[int] = [1, 3, 5]  # ISO weekday (1=Mon)
     cadence: list[CadenceRule] = []
     review_reply_style: str = ""
+    engagement: EngagementPlaybook = EngagementPlaybook()
 
 
 class Guardrails(BaseModel):

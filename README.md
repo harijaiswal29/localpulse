@@ -8,7 +8,7 @@ data model up. Coordinated AI agents *draft* work; a human approves anything pub
 Full design: [`docs/multi-agent-system-spec.md`](docs/multi-agent-system-spec.md) ·
 Build guide: [`CLAUDE.md`](CLAUDE.md)
 
-## Status: P1 (P0 MVP + Reputation)
+## Status: P2 (P0 MVP + Reputation + Engagement)
 
 The thin vertical slice for one Family-1 vertical (**bakery**):
 
@@ -24,12 +24,21 @@ The thin vertical slice for one Family-1 vertical (**bakery**):
   review's own language and the owner's voice; negative or ambiguous reviews are
   escalated (A2) and never auto-send; runs the post-purchase review-solicitation
   nudge loop through the Cost Guard
+- **Engagement Agent** (P2) — answers customer WhatsApp messages: FAQs and simple
+  pre-orders are auto-answered (A0) from **deterministic pack templates** filled with
+  Client Context — free inside the 24h service window, and never a guessed reply;
+  anything not confidently matched escalates to the owner (A2) with a polite holding
+  message; drafts the weekly offer broadcast (A1) to opted-in customers, priced as
+  marketing and budget-checked per recipient (`STOP` opt-out honoured)
 - **Insights Agent** — daily metric collection + plain-language monthly report,
-  including review response rate
+  including review response rate and WhatsApp enquiries handled
 - **Cost Guard** — every outbound WhatsApp message is categorised (free service-window
   reply preferred) and budget-checked before sending
+- **WhatsApp transport** — offline mock by default; setting `WHATSAPP_BSP_API_KEY` +
+  `WHATSAPP_PHONE_NUMBER_ID` switches to the real WhatsApp Business Cloud API adapter
+  behind the same `WhatsAppTool` interface
 
-The Engagement agent is P2 (see spec §14).
+Next up: multi-tenant scale-out and GBP API onboarding (see spec §14–15).
 
 ## Setup
 
@@ -74,13 +83,23 @@ curl -X POST localhost:8000/clients/pilot-1/reputation/check
 curl -X POST localhost:8000/clients/pilot-1/reputation/nudge \
   -H 'content-type: application/json' \
   -d '{"customer_number": "+919900112233", "customer_name": "Priya"}'
+
+# a customer messages the shop — auto-answered or escalated, never guessed
+curl -X POST localhost:8000/clients/pilot-1/engagement/inbound \
+  -H 'content-type: application/json' \
+  -d '{"customer_number": "+919900112233", "customer_name": "Priya", "text": "What time do you close?"}'
+
+# draft this week's offer broadcast for the opted-in audience (owner approves before send)
+curl -X POST localhost:8000/clients/pilot-1/engagement/broadcast \
+  -H 'content-type: application/json' -d '{}'
 ```
 
 ## Quality
 
 ```bash
-pytest                        # 60 tests: state machine, cost guard, packs, tenant
-                              # isolation, content eval, reputation, end-to-end slice
+pytest                        # 84 tests: state machine, cost guard, packs, tenant
+                              # isolation, content eval, reputation, engagement,
+                              # end-to-end slice
 ruff check . && ruff format .
 ```
 
@@ -89,8 +108,8 @@ ruff check . && ruff format .
 ```
 src/localpulse/
 ├── orchestrator/   # approval state machine, cost guard, tool registry, cadence worker
-├── agents/         # onboarding, content, reputation, insights (stateless)
-├── tools/          # GBP (semi-manual), WhatsApp, image gen, web search — typed clients
+├── agents/         # onboarding, content, reputation, engagement, insights (stateless)
+├── tools/          # GBP (semi-manual), WhatsApp (mock + Cloud API), image gen — typed clients
 ├── llm/            # model gateway (provider-agnostic; per-agent model config)
 ├── packs/          # vertical packs — ALL vertical logic lives here (bakery/ shipped)
 ├── context/        # Client Context pydantic models + client_id-scoped repositories

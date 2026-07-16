@@ -39,6 +39,16 @@ class NudgeRequest(BaseModel):
     within_service_window: bool = False
 
 
+class CustomerInbound(BaseModel):
+    customer_number: str
+    text: str
+    customer_name: str = ""
+
+
+class BroadcastRequest(BaseModel):
+    offer_text: str = ""
+
+
 def _preview(draft: DraftItem) -> dict:
     return {
         "id": draft.id,
@@ -195,6 +205,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         if draft is None:
             raise HTTPException(422, "could not draft a nudge that passes guardrails")
+        return _preview(draft)
+
+    @app.post("/clients/{client_id}/engagement/inbound")
+    def customer_inbound(
+        client_id: str, payload: CustomerInbound, session=Depends(get_session)
+    ) -> dict:
+        """Customer WhatsApp message routed to a client (the BSP webhook maps its
+        phone_number_id to a client and forwards here). A0 auto-answer or A2 escalate."""
+        services = _services_or_404(container, session, client_id)
+        result = services.engagement_agent.handle_inbound(
+            services.context,
+            customer_number=payload.customer_number,
+            text=payload.text,
+            customer_name=payload.customer_name,
+        )
+        return {"action": result.action, "reply": result.reply}
+
+    @app.post("/clients/{client_id}/engagement/broadcast")
+    def draft_broadcast(
+        client_id: str, request: BroadcastRequest, session=Depends(get_session)
+    ) -> dict:
+        services = _services_or_404(container, session, client_id)
+        draft = services.engagement_agent.draft_weekly_broadcast(
+            services.context, offer_text=request.offer_text
+        )
+        if draft is None:
+            raise HTTPException(
+                422, "could not draft a broadcast (no opted-in audience, or guardrails failed)"
+            )
         return _preview(draft)
 
     @app.get("/clients/{client_id}/report/{year}/{month}")

@@ -100,6 +100,7 @@ MODEL_CONTENT=claude-sonnet
 MODEL_ROUTER=                        # e.g. a cheap/free model
 MODEL_INSIGHTS=
 MODEL_REPUTATION=
+MODEL_ENGAGEMENT=
 
 # WhatsApp (via BSP)
 WHATSAPP_BSP_API_KEY=
@@ -130,18 +131,13 @@ LOG_LEVEL=INFO
 
 **P1 — Reputation: done** (2026-07-16). Reputation Agent runs hourly review checks (cadence from the pack playbook), drafts replies in the review's own language, escalates negative/ambiguous reviews (A2 — rating ≤ 3 or complaint cues; flagged, never auto-sent), and runs the review-solicitation nudge loop through the Cost Guard. The publisher dispatches by `DraftKind` (GBP post / review reply / WhatsApp nudge); the monthly report includes review response rate. GBP reviews and replies stay semi-manual (seedable list + reply queue in `tools/gbp.py`) until API access is granted (spec §7).
 
-## Current milestone: P2 (Engagement)
+**P2 — Engagement: done** (2026-07-16). All DoD items met: the Engagement Agent auto-answers FAQs and simple pre-order questions (A0) using **deterministic pack templates filled from the Client Context** — the model never improvises a customer-facing answer, so it can never guess one; unmatched or ambiguous messages (including pre-orders naming only a `vague_terms` word like "cake") escalate to the owner (A2) with a pack-defined holding reply; the weekly offer broadcast is drafted (A1, `engagement.weekly_broadcast` Friday cadence), carries an engine-enforced STOP opt-out footer, and publishes to opted-in customers only, priced as marketing with an **all-or-nothing** budget precheck (a blocked batch sends nothing and stays retryable); `CloudApiWhatsAppTool` (WhatsApp Business Cloud API) sits behind the `WhatsAppTool` interface and is selected only when `WHATSAPP_BSP_API_KEY` + `WHATSAPP_PHONE_NUMBER_ID` are set — the mock stays the default offline transport; all FAQ/pre-order/broadcast wording lives in the pack's `EngagementPlaybook`. Conversations track the 24h service window and STOP opt-outs; every enquiry is audit-logged and the monthly report counts enquiries handled.
 
-Per spec §14: add the Engagement Agent and adopt a real WhatsApp Business API/BSP.
+## Current milestone: P3 (scale-out — see spec §14)
 
-**Definition of Done for P2:**
-- [ ] Engagement Agent auto-answers FAQs and simple pre-order/booking questions **within the free 24-hour service window** (A0, near-zero cost).
-- [ ] Anything it can't confidently handle escalates to the owner (A2) — never a guessed reply.
-- [ ] Weekly offer broadcast drafts (A1); broadcasts are marketing category, priced and budget-checked by the Cost Guard.
-- [ ] A real BSP adapter behind the existing `WhatsAppTool` interface; the mock stays the default offline transport.
-- [ ] FAQ/pre-order behaviour is pack-driven (playbook), not hard-coded in the engine.
+Grow beyond the single pilot: second Vertical Pack (salon — Family 2, appointments) to prove the pack contract; multi-client worker hardening; GBP API integration once access is granted; owner-configurable approval preferences (A1→A0 promotions for trusted draft kinds, never for A2-escalated items).
 
-**Carry-over open items:** apply for GBP API access (spec §15); confirm the approximate 2026 festival dates in `context/regional_calendar.py` before real pilots.
+**Carry-over open items:** apply for GBP API access (spec §15); confirm the approximate 2026 festival dates in `context/regional_calendar.py` before real pilots; real deployments must collect explicit marketing opt-in (pilot treats an inbound message as implied consent, STOP revokes).
 
 ---
 
@@ -155,5 +151,5 @@ Per spec §14: add the Engagement Agent and adopt a real WhatsApp Business API/B
 ## Start here
 
 1. Read `docs/multi-agent-system-spec.md`.
-2. The repo is scaffolded and P0 + P1 are built (see Milestone status). Verify with `pytest`, `ruff check .`, and `python scripts/run_pilot.py` — everything runs offline via the mock model provider and mock tools; `src/localpulse/container.py` is the composition root.
-3. Implement P2 against its Definition of Done, keeping all vertical logic in `packs/`.
+2. The repo is scaffolded and P0 + P1 + P2 are built (see Milestone status). Verify with `pytest`, `ruff check .`, and `python scripts/run_pilot.py` — everything runs offline via the mock model provider and mock tools; `src/localpulse/container.py` is the composition root.
+3. Work the P3 items above, keeping all vertical logic in `packs/`.

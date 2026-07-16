@@ -3,7 +3,17 @@ data model even while the deployment is single-tenant (P0 DoD)."""
 
 from datetime import UTC, date, datetime
 
-from sqlalchemy import JSON, Date, DateTime, Float, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Date,
+    DateTime,
+    Float,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from localpulse.data.db import Base
@@ -93,6 +103,38 @@ class ReviewRecord(Base):
     reply_draft_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     replied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ConversationRecord(Base):
+    """One WhatsApp customer conversation. last_inbound_at drives the 24h free
+    service window; opt_in gates the marketing broadcast audience."""
+
+    __tablename__ = "conversations"
+    __table_args__ = (UniqueConstraint("client_id", "customer_number"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    client_id: Mapped[str] = mapped_column(String(64), index=True)
+    customer_number: Mapped[str] = mapped_column(String(32), index=True)
+    customer_name: Mapped[str] = mapped_column(String(128), default="")
+    # Pilot: messaging the business implies consent to offers; STOP revokes it.
+    # Real deployments should collect explicit opt-in per Meta commerce policy.
+    opt_in: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_inbound_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class EnquiryRecord(Base):
+    """Every inbound customer message and what the Engagement Agent did with it —
+    the audit trail behind 'enquiries handled' in the monthly report (spec §5.5)."""
+
+    __tablename__ = "enquiries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    client_id: Mapped[str] = mapped_column(String(64), index=True)
+    customer_number: Mapped[str] = mapped_column(String(32), index=True)
+    text: Mapped[str] = mapped_column(Text, default="")
+    action: Mapped[str] = mapped_column(String(32))  # faq | preorder | escalated | opt_out
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class CostLedgerRecord(Base):

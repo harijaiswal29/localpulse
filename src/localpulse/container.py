@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from sqlalchemy.orm import Session
 
 from localpulse.agents.content import ContentAgent
+from localpulse.agents.engagement import EngagementAgent
 from localpulse.agents.insights import InsightsAgent
 from localpulse.agents.onboarding import OnboardingAgent
 from localpulse.agents.reputation import ReputationAgent
@@ -17,7 +18,9 @@ from localpulse.context.repositories import (
     ApprovalLogRepository,
     ClientRepository,
     ContentQueueRepository,
+    ConversationRepository,
     CostLedgerRepository,
+    EnquiryRepository,
     MetricsRepository,
     PublishLogRepository,
     ReviewRepository,
@@ -29,7 +32,7 @@ from localpulse.orchestrator.cost_guard import CostGuard
 from localpulse.orchestrator.tool_registry import ToolRegistry
 from localpulse.tools.gbp import SemiManualGbpTool
 from localpulse.tools.imagegen import MockImageGenTool
-from localpulse.tools.whatsapp import MockWhatsAppTool
+from localpulse.tools.whatsapp import CloudApiWhatsAppTool, MockWhatsAppTool
 
 
 @dataclass
@@ -42,10 +45,13 @@ class ClientServices:
     publish_log: PublishLogRepository
     metrics: MetricsRepository
     reviews: ReviewRepository
+    conversations: ConversationRepository
+    enquiries: EnquiryRepository
     state_machine: ApprovalStateMachine
     cost_guard: CostGuard
     content_agent: ContentAgent
     reputation_agent: ReputationAgent
+    engagement_agent: EngagementAgent
     insights_agent: InsightsAgent
 
 
@@ -70,7 +76,17 @@ class Container:
         if not self.registry.is_connected(client_id, "gbp"):
             self.registry.register(client_id, "gbp", SemiManualGbpTool(client_id=client_id))
         if not self.registry.is_connected(client_id, "whatsapp"):
-            self.registry.register(client_id, "whatsapp", MockWhatsAppTool(client_id=client_id))
+            # Real BSP transport only when credentials are configured (P2 DoD);
+            # the mock stays the default offline transport everywhere else.
+            if self.settings.whatsapp_bsp_api_key and self.settings.whatsapp_phone_number_id:
+                whatsapp = CloudApiWhatsAppTool(
+                    client_id=client_id,
+                    api_key=self.settings.whatsapp_bsp_api_key,
+                    phone_number_id=self.settings.whatsapp_phone_number_id,
+                )
+            else:
+                whatsapp = MockWhatsAppTool(client_id=client_id)
+            self.registry.register(client_id, "whatsapp", whatsapp)
         if not self.registry.is_connected(client_id, "imagegen"):
             self.registry.register(client_id, "imagegen", MockImageGenTool(client_id=client_id))
 
@@ -82,6 +98,8 @@ class Container:
         publish_log = PublishLogRepository(session, client_id)
         metrics = MetricsRepository(session, client_id)
         reviews = ReviewRepository(session, client_id)
+        conversations = ConversationRepository(session, client_id)
+        enquiries = EnquiryRepository(session, client_id)
         state_machine = ApprovalStateMachine(queue, approval_log)
         cost_guard = CostGuard(
             CostLedgerRepository(session, client_id),
@@ -94,11 +112,16 @@ class Container:
             publish_log=publish_log,
             metrics=metrics,
             reviews=reviews,
+            conversations=conversations,
+            enquiries=enquiries,
             state_machine=state_machine,
             cost_guard=cost_guard,
             content_agent=ContentAgent(self.gateway, self.registry, state_machine, cost_guard),
             reputation_agent=ReputationAgent(
                 self.gateway, self.registry, state_machine, cost_guard, reviews
             ),
-            insights_agent=InsightsAgent(metrics, publish_log, self.registry, reviews),
+            engagement_agent=EngagementAgent(
+                self.gateway, self.registry, state_machine, cost_guard, conversations, enquiries
+            ),
+            insights_agent=InsightsAgent(metrics, publish_log, self.registry, reviews, enquiries),
         )

@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
+from localpulse.agents.common import check_text_guardrails
 from localpulse.context.models import ApprovalState, ClientContext, DraftItem, DraftKind
 from localpulse.context.repositories import ReviewRepository
 from localpulse.llm.gateway import ModelGateway
@@ -57,15 +58,7 @@ def classify_review(review: Review) -> str:
 
 def check_reply_guardrails(reply: str, pack: VerticalPack) -> str | None:
     """Return a rejection reason, or None if the reply is safe to show the owner."""
-    if not reply.strip():
-        return "empty reply"
-    if len(reply) > pack.guardrails.max_caption_chars:
-        return "reply too long"
-    lowered = reply.lower()
-    for term in pack.guardrails.banned_terms:
-        if term.lower() in lowered:
-            return f"banned term: {term}"
-    return None
+    return check_text_guardrails(reply, pack)
 
 
 class ReputationAgent:

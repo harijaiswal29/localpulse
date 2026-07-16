@@ -34,6 +34,11 @@ class MockProvider:
                 f"If you enjoyed your order, a quick Google review would mean a lot to us — "
                 f"just search for {business} on Google Maps. 🙏"
             )[: max_tokens * 4]
+        if "offer" in facts:
+            return (
+                f"This week at {business}: {facts['offer']}! Freshly made in small "
+                f"batches — reply here to reserve yours before the weekend rush. 🧁"
+            )[: max_tokens * 4]
         offering = facts.get("offering", "")
         occasion = facts.get("occasion", "")
         hook = facts.get("hook", "something special")
