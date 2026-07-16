@@ -1,0 +1,103 @@
+# LocalPulse
+
+An AI system that keeps a local business's online presence — Google Business Profile,
+reviews, WhatsApp — active on autopilot, with the owner approving anything that goes
+public. Built as a **generic engine + swappable Vertical Packs**, multi-tenant from the
+data model up. Coordinated AI agents *draft* work; a human approves anything public.
+
+Full design: [`docs/multi-agent-system-spec.md`](docs/multi-agent-system-spec.md) ·
+Build guide: [`CLAUDE.md`](CLAUDE.md)
+
+## Status: P1 (P0 MVP + Reputation)
+
+The thin vertical slice for one Family-1 vertical (**bakery**):
+
+- **Onboarding Agent** — pack question set → validated `ClientContext`
+- **Content Agent** — a week of drafts (caption + image ref) into the Content Queue,
+  grounded in real offerings, festival-calendar aware (Maharashtra-weighted),
+  guardrail-checked before the owner ever sees them
+- **Approval flow** — owner replies `LIST` / `APPROVE <id>` / `EDIT <id> <text>` /
+  `SKIP <id>` on WhatsApp; approved items publish through the Approval State Machine
+  (`drafted → pending_approval → approved → published`); GBP publishing is
+  semi-manual in P0 (approved posts land in a per-client publish queue)
+- **Reputation Agent** (P1) — hourly review checks; drafts public replies in the
+  review's own language and the owner's voice; negative or ambiguous reviews are
+  escalated (A2) and never auto-send; runs the post-purchase review-solicitation
+  nudge loop through the Cost Guard
+- **Insights Agent** — daily metric collection + plain-language monthly report,
+  including review response rate
+- **Cost Guard** — every outbound WhatsApp message is categorised (free service-window
+  reply preferred) and budget-checked before sending
+
+The Engagement agent is P2 (see spec §14).
+
+## Setup
+
+```bash
+cp .env.example .env        # then fill in secrets (runs offline with defaults)
+pip install -e ".[dev]"
+```
+
+Defaults run fully offline: SQLite database and the `mock` model provider (no API keys
+needed). Which model runs each agent is config (`MODEL_CONTENT=claude-...` etc.), never
+code — agents only talk to the model gateway.
+
+## Run
+
+```bash
+uvicorn localpulse.api.main:app --reload    # API + WhatsApp webhook
+python -m localpulse.orchestrator.worker     # cadence engine / scheduled agent runs
+python scripts/run_pilot.py                  # seeded end-to-end demo in the terminal
+```
+
+Try the flow with curl:
+
+```bash
+# onboard a pilot shop (answers keyed by the bakery pack's question ids)
+curl -X POST localhost:8000/clients/pilot-1/onboard \
+  -H 'content-type: application/json' \
+  -d '{"pack_ref": "bakery", "answers": {"shop_name": "Mane'\''s Bakehouse", "address": "12 FC Road", "city": "Pune", "hours": "8am-9pm", "owner_whatsapp": "+919812345678", "specialties": "Chocolate truffle cake ₹550, Modak box ₹300", "tone": "warm, homely", "languages": "English"}}'
+
+# generate a week of drafts
+curl -X POST localhost:8000/clients/pilot-1/content/run \
+  -H 'content-type: application/json' -d '{"week_start": "2026-07-20"}'
+
+# owner approves over WhatsApp (webhook simulation)
+curl -X POST localhost:8000/webhooks/whatsapp \
+  -H 'content-type: application/json' \
+  -d '{"from_number": "+919812345678", "text": "LIST"}'
+
+# check for new reviews and draft replies (also runs hourly via the worker)
+curl -X POST localhost:8000/clients/pilot-1/reputation/check
+
+# draft a post-purchase review nudge for a happy customer
+curl -X POST localhost:8000/clients/pilot-1/reputation/nudge \
+  -H 'content-type: application/json' \
+  -d '{"customer_number": "+919900112233", "customer_name": "Priya"}'
+```
+
+## Quality
+
+```bash
+pytest                        # 60 tests: state machine, cost guard, packs, tenant
+                              # isolation, content eval, reputation, end-to-end slice
+ruff check . && ruff format .
+```
+
+## Repo map
+
+```
+src/localpulse/
+├── orchestrator/   # approval state machine, cost guard, tool registry, cadence worker
+├── agents/         # onboarding, content, reputation, insights (stateless)
+├── tools/          # GBP (semi-manual), WhatsApp, image gen, web search — typed clients
+├── llm/            # model gateway (provider-agnostic; per-agent model config)
+├── packs/          # vertical packs — ALL vertical logic lives here (bakery/ shipped)
+├── context/        # Client Context pydantic models + client_id-scoped repositories
+├── data/           # SQLAlchemy models — every table carries client_id
+└── api/            # FastAPI: WhatsApp inbound webhook + approval endpoints
+```
+
+**Golden rules** live in [`CLAUDE.md`](CLAUDE.md) — nothing publishes without an
+approval, the engine stays generic, agents are stateless, and all spend routes
+through the Cost Guard.
