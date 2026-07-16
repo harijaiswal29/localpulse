@@ -102,7 +102,8 @@ MODEL_INSIGHTS=
 MODEL_REPUTATION=
 MODEL_ENGAGEMENT=
 
-# WhatsApp (via BSP)
+# WhatsApp (via BSP) — leave both empty to use the offline mock transport;
+# set both to switch every client to the WhatsApp Cloud API adapter
 WHATSAPP_BSP_API_KEY=
 WHATSAPP_PHONE_NUMBER_ID=
 
@@ -120,7 +121,7 @@ LOG_LEVEL=INFO
 ## Interface contracts (high level)
 
 - **Agent I/O:** every agent takes `(client_context, trigger_payload)` and returns either a `PublishedAction` or a `DraftItem` (which enters the approval queue). Model both as pydantic types in `context/`.
-- **Tools:** each MCP tool exposes typed methods (e.g. `gbp.post(...)`, `gbp.list_reviews(...)`, `whatsapp.send_template(...)`, `whatsapp.reply(...)`). Agents call tools only via the Tool Registry, never directly.
+- **Tools:** each MCP tool exposes typed methods (e.g. `gbp.post(...)`, `gbp.list_reviews(...)`, `gbp.reply_review(...)`, `whatsapp.send(to, body, category)`). Agents call tools only via the Tool Registry, never directly — and never call `whatsapp.send` themselves: all outbound WhatsApp goes through `orchestrator.messaging.send_whatsapp`, the single choke point where the Cost Guard picks the category and checks the budget.
 - **Vertical Pack:** a pack is a directory exporting `templates`, `onboarding_questions`, `offering_schema`, `calendar_weights`, `playbook`, and `guardrails`. The engine loads a pack by `client_context.vertical_pack_ref`.
 
 ---
