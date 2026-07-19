@@ -136,7 +136,11 @@ LOG_LEVEL=INFO
 
 ## Current milestone: P3 (scale-out — see spec §14)
 
-Grow beyond the single pilot: second Vertical Pack (salon — Family 2, appointments) to prove the pack contract; multi-client worker hardening; GBP API integration once access is granted; owner-configurable approval preferences (A1→A0 promotions for trusted draft kinds, never for A2-escalated items).
+Grow beyond the single pilot.
+
+**Salon pack (Family 2, appointments): done** (2026-07-19). `packs/salon/` proves the pack contract beyond product retail with zero salon logic in the engine. Engine changes were pure de-bakery-fication: `OfferingSchema` gained `requires_appointment` and Onboarding now parses any `offerings.*` field, typing offerings from the pack's schema instead of assuming PRODUCT. Booking cues, walk-in/hours/price FAQs, vague-term escalation ("hair treatment" never gets a guessed quote), Thursday-evening broadcast cadence, and beauty-claim guardrails (no whitening/fairness/permanent-results wording) all live in the pack. Verified by the salon pack contract suite incl. a two-pack isolation test (bakery + salon in one engine).
+
+**Remaining P3 items:** multi-client worker hardening; GBP API integration once access is granted; owner-configurable approval preferences (A1→A0 promotions for trusted draft kinds, never for A2-escalated items).
 
 **Carry-over open items:** apply for GBP API access (spec §15); confirm the approximate 2026 festival dates in `context/regional_calendar.py` before real pilots; real deployments must collect explicit marketing opt-in (pilot treats an inbound message as implied consent, STOP revokes).
 

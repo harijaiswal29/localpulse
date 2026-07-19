@@ -8,9 +8,10 @@ data model up. Coordinated AI agents *draft* work; a human approves anything pub
 Full design: [`docs/multi-agent-system-spec.md`](docs/multi-agent-system-spec.md) ·
 Build guide: [`CLAUDE.md`](CLAUDE.md)
 
-## Status: P2 (P0 MVP + Reputation + Engagement)
+## Status: P3 in progress (P0 MVP + Reputation + Engagement + second vertical)
 
-The thin vertical slice for one Family-1 vertical (**bakery**):
+The full slice runs for two verticals — **bakery** (Family 1, products) and
+**salon** (Family 2, appointment services) — on one generic engine:
 
 - **Onboarding Agent** — pack question set → validated `ClientContext`
 - **Content Agent** — a week of drafts (caption + image ref) into the Content Queue,
@@ -37,6 +38,10 @@ The thin vertical slice for one Family-1 vertical (**bakery**):
 - **WhatsApp transport** — offline mock by default; setting `WHATSAPP_BSP_API_KEY` +
   `WHATSAPP_PHONE_NUMBER_ID` switches to the real WhatsApp Business Cloud API adapter
   behind the same `WhatsAppTool` interface
+- **Salon Vertical Pack** (P3) — proves the pack contract beyond product retail:
+  offerings are appointment services (typed by the pack's offering schema, no engine
+  change per vertical), booking enquiries quote and alert the owner, walk-in/hours/price
+  FAQs auto-answer, vague requests ("hair treatment") escalate instead of guessing
 
 Next up: multi-tenant scale-out and GBP API onboarding (see spec §14–15).
 
@@ -97,9 +102,9 @@ curl -X POST localhost:8000/clients/pilot-1/engagement/broadcast \
 ## Quality
 
 ```bash
-pytest                        # 84 tests: state machine, cost guard, packs, tenant
+pytest                        # 95 tests: state machine, cost guard, packs, tenant
                               # isolation, content eval, reputation, engagement,
-                              # end-to-end slice
+                              # salon pack contract, end-to-end slice
 ruff check . && ruff format .
 ```
 
@@ -111,7 +116,7 @@ src/localpulse/
 ├── agents/         # onboarding, content, reputation, engagement, insights (stateless)
 ├── tools/          # GBP (semi-manual), WhatsApp (mock + Cloud API), image gen — typed clients
 ├── llm/            # model gateway (provider-agnostic; per-agent model config)
-├── packs/          # vertical packs — ALL vertical logic lives here (bakery/ shipped)
+├── packs/          # vertical packs — ALL vertical logic lives here (bakery/, salon/)
 ├── context/        # Client Context pydantic models + client_id-scoped repositories
 ├── data/           # SQLAlchemy models — every table carries client_id
 └── api/            # FastAPI: WhatsApp inbound webhook + approval endpoints

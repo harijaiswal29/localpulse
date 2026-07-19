@@ -33,6 +33,9 @@ class OnboardingQuestion(BaseModel):
 class OfferingSchema(BaseModel):
     allowed_types: list[OfferingType]
     required_fields: list[str] = ["name"]
+    # vertical judgement: offerings in this vertical are booked by appointment
+    # (salon, clinic) rather than picked up or delivered (bakery, boutique)
+    requires_appointment: bool = False
 
 
 class CadenceRule(BaseModel):

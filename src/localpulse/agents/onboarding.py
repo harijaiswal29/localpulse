@@ -13,10 +13,11 @@ from localpulse.context.models import (
     ChannelStatus,
     ClientContext,
     Offering,
+    OfferingType,
 )
 from localpulse.context.regional_calendar import regional_calendar
 from localpulse.context.repositories import ClientRepository
-from localpulse.packs.base import load_pack
+from localpulse.packs.base import OfferingSchema, load_pack
 
 _PRICE_PATTERN = re.compile(r"[₹Rr][sS]?\.?\s*(\d+(?:\.\d+)?)")
 
@@ -31,14 +32,24 @@ def _split_list(value: str) -> list[str]:
     return [part.strip() for part in value.split(",") if part.strip()]
 
 
-def _parse_offerings(value: str) -> list[Offering]:
+def _parse_offerings(value: str, schema: OfferingSchema) -> list[Offering]:
+    """Parse 'Name ₹price, ...' into offerings typed by the pack's offering schema —
+    the engine never assumes a vertical sells products (golden rule #2)."""
+    offering_type = schema.allowed_types[0] if schema.allowed_types else OfferingType.PRODUCT
     offerings = []
     for item in _split_list(value):
         match = _PRICE_PATTERN.search(item)
         price = float(match.group(1)) if match else None
         name = _PRICE_PATTERN.sub("", item).strip(" -–@")
         if name:
-            offerings.append(Offering(name=name, price_inr=price))
+            offerings.append(
+                Offering(
+                    name=name,
+                    type=offering_type,
+                    price_inr=price,
+                    requires_appointment=schema.requires_appointment,
+                )
+            )
     return offerings
 
 
@@ -82,7 +93,14 @@ class OnboardingAgent:
                 else []
             ),
         )
-        offerings = _parse_offerings(by_field.get("offerings.products", ""))
+        # any `offerings.*` field (offerings.products, offerings.services, ...) —
+        # the suffix is the pack's naming choice, the schema decides the type
+        offerings = [
+            offering
+            for field in sorted(by_field)
+            if field.startswith("offerings.")
+            for offering in _parse_offerings(by_field[field], pack.offering_schema)
+        ]
         notes = {
             field.removeprefix("notes."): value
             for field, value in by_field.items()

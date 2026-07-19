@@ -36,8 +36,8 @@ class MockProvider:
             )[: max_tokens * 4]
         if "offer" in facts:
             return (
-                f"This week at {business}: {facts['offer']}! Freshly made in small "
-                f"batches — reply here to reserve yours before the weekend rush. 🧁"
+                f"This week at {business}: {facts['offer']}! Reply right here to "
+                f"grab yours before the weekend rush. ✨"
             )[: max_tokens * 4]
         offering = facts.get("offering", "")
         occasion = facts.get("occasion", "")
@@ -46,10 +46,10 @@ class MockProvider:
         if occasion:
             parts.append(f"Happy {occasion}!")
         if offering:
-            parts.append(f"{offering} at {business} — {hook}, made fresh today.")
+            parts.append(f"{offering} at {business} — {hook}.")
         else:
             parts.append(f"{business} — {hook}.")
-        parts.append("Message us on WhatsApp to order.")
+        parts.append("Message us on WhatsApp to book or order.")
         return " ".join(parts)[: max_tokens * 4]
 
     @staticmethod

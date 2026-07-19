@@ -183,7 +183,7 @@ class ContentAgent:
         image_ref = None
         if self._registry.is_connected(ctx.client_id, "imagegen"):
             image_prompt = (
-                f"Appetising photo-style image for a {ctx.business.category.lower()}: "
+                f"Appealing photo-style image for a {ctx.business.category.lower()}: "
                 f"{slot.offering.name if slot.offering else slot.template.hook}"
                 + (f", {slot.event.name} theme" if slot.event else "")
             )
