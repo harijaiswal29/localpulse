@@ -140,7 +140,9 @@ Grow beyond the single pilot.
 
 **Salon pack (Family 2, appointments): done** (2026-07-19). `packs/salon/` proves the pack contract beyond product retail with zero salon logic in the engine. Engine changes were pure de-bakery-fication: `OfferingSchema` gained `requires_appointment` and Onboarding now parses any `offerings.*` field, typing offerings from the pack's schema instead of assuming PRODUCT. Booking cues, walk-in/hours/price FAQs, vague-term escalation ("hair treatment" never gets a guessed quote), Thursday-evening broadcast cadence, and beauty-claim guardrails (no whitening/fairness/permanent-results wording) all live in the pack. Verified by the salon pack contract suite incl. a two-pack isolation test (bakery + salon in one engine).
 
-**Remaining P3 items:** multi-client worker hardening; GBP API integration once access is granted; owner-configurable approval preferences (A1→A0 promotions for trusted draft kinds, never for A2-escalated items).
+**Multi-client worker hardening: done** (2026-07-19). The schedule is no longer a startup snapshot: a `worker:resync` job (interval from `WORKER_RESYNC_MINUTES`, default 5) reconciles scheduler jobs with the tenant directory — clients onboarded while the worker runs get scheduled, deleted clients get unscheduled, cadence changes re-schedule, and a client whose pack fails to load is skipped without touching the others. `TaskRouter.dispatch` never raises: per-client/task failures are contained and a circuit breaker (3 consecutive failures → 30-min cooldown) stops a broken tenant from burning worker cycles; a vanished client logs a warning and its jobs drop at the next resync.
+
+**Remaining P3 items:** GBP API integration once access is granted; owner-configurable approval preferences (A1→A0 promotions for trusted draft kinds, never for A2-escalated items).
 
 **Carry-over open items:** apply for GBP API access (spec §15); confirm the approximate 2026 festival dates in `context/regional_calendar.py` before real pilots; real deployments must collect explicit marketing opt-in (pilot treats an inbound message as implied consent, STOP revokes).
 

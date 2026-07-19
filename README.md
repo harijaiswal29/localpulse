@@ -42,6 +42,10 @@ The full slice runs for two verticals — **bakery** (Family 1, products) and
   offerings are appointment services (typed by the pack's offering schema, no engine
   change per vertical), booking enquiries quote and alert the owner, walk-in/hours/price
   FAQs auto-answer, vague requests ("hair treatment") escalate instead of guessing
+- **Hardened multi-client worker** (P3) — the cadence schedule tracks the tenant
+  directory live (new clients scheduled, deleted clients unscheduled, broken packs
+  skipped — no restart needed), and dispatch is isolated per client/task with a
+  circuit breaker so one failing tenant never starves the rest
 
 Next up: multi-tenant scale-out and GBP API onboarding (see spec §14–15).
 
@@ -102,9 +106,9 @@ curl -X POST localhost:8000/clients/pilot-1/engagement/broadcast \
 ## Quality
 
 ```bash
-pytest                        # 95 tests: state machine, cost guard, packs, tenant
+pytest                        # 104 tests: state machine, cost guard, packs, tenant
                               # isolation, content eval, reputation, engagement,
-                              # salon pack contract, end-to-end slice
+                              # salon pack contract, worker hardening, e2e slice
 ruff check . && ruff format .
 ```
 

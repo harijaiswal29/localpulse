@@ -40,6 +40,9 @@ class Settings(BaseSettings):
 
     default_monthly_budget_inr: float = 500.0
 
+    # how often the worker reconciles its schedule with the tenant directory
+    worker_resync_minutes: int = 5
+
     def model_map(self) -> dict[str, str]:
         """Task profile -> model id. Agents resolve models through this map only."""
         return {
