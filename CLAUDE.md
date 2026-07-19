@@ -146,7 +146,7 @@ Grow beyond the single pilot.
 
 **Remaining P3 items:** GBP API integration once access is granted.
 
-**Carry-over open items:** apply for GBP API access (spec §15); confirm the approximate 2026 festival dates in `context/regional_calendar.py` before real pilots; real deployments must collect explicit marketing opt-in (pilot treats an inbound message as implied consent, STOP revokes).
+**Carry-over open items:** apply for GBP API access — runbook with pre-drafted form answers in `docs/gbp-api-access.md` (blocking prerequisite: the applicant email must be a manager on a verified GBP active 60+ days, so arrange pilot-profile access first); confirm the approximate 2026 festival dates in `context/regional_calendar.py` before real pilots; real deployments must collect explicit marketing opt-in (pilot treats an inbound message as implied consent, STOP revokes).
 
 ---
 
