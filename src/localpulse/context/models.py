@@ -85,8 +85,18 @@ class ChannelStatus(BaseModel):
     credentials_ref: str | None = None  # encrypted credentials live in the DB, not here
 
 
+class DraftKind(StrEnum):
+    GBP_POST = "gbp_post"
+    REVIEW_REPLY = "review_reply"
+    REVIEW_NUDGE = "review_nudge"  # post-purchase review solicitation (spec §5.3)
+    WHATSAPP_BROADCAST = "whatsapp_broadcast"
+
+
 class ApprovalPreferences(BaseModel):
-    auto_publish: bool = False  # P0: always False — everything public needs approval
+    # Draft kinds the owner trusts to publish without a per-item tap (A1 → A0).
+    # A2-escalated drafts are never eligible, whatever this list says — that
+    # exclusion is enforced in the Approval State Machine, not here.
+    auto_publish_kinds: list[DraftKind] = []
     quiet_hours: tuple[int, int] = (21, 8)
 
 
@@ -113,13 +123,6 @@ class ClientContext(BaseModel):
             if offering.name.lower() == lowered:
                 return offering
         return None
-
-
-class DraftKind(StrEnum):
-    GBP_POST = "gbp_post"
-    REVIEW_REPLY = "review_reply"
-    REVIEW_NUDGE = "review_nudge"  # post-purchase review solicitation (spec §5.3)
-    WHATSAPP_BROADCAST = "whatsapp_broadcast"
 
 
 class DraftItem(BaseModel):

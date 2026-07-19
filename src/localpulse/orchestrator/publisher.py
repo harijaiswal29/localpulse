@@ -3,6 +3,9 @@ one is logged with the approval that authorised it (golden rule #1, spec §11)."
 
 from __future__ import annotations
 
+import logging
+from typing import TYPE_CHECKING
+
 from localpulse.context.models import (
     ApprovalState,
     Channel,
@@ -16,9 +19,48 @@ from localpulse.context.repositories import (
     ReviewRepository,
 )
 from localpulse.orchestrator.approval import ApprovalStateMachine
-from localpulse.orchestrator.cost_guard import CostGuard, MessageCategory, MessagePurpose
+from localpulse.orchestrator.cost_guard import (
+    BudgetExceededError,
+    CostGuard,
+    MessageCategory,
+    MessagePurpose,
+)
 from localpulse.orchestrator.messaging import send_whatsapp
 from localpulse.orchestrator.tool_registry import ToolRegistry
+
+if TYPE_CHECKING:
+    from localpulse.container import ClientServices
+
+logger = logging.getLogger(__name__)
+
+
+def publish_ready(services: ClientServices, registry: ToolRegistry) -> list[PublishedAction]:
+    """Publish every draft sitting in APPROVED — the delivery leg for drafts the
+    owner's standing preference auto-approved (A0) and the retry path for drafts
+    whose earlier publish was budget-blocked. Idempotent; a budget block leaves
+    the draft approved and retryable, everything else keeps going."""
+    actions: list[PublishedAction] = []
+    for draft in services.queue.list(state=ApprovalState.APPROVED):
+        try:
+            actions.append(
+                publish_draft(
+                    draft_id=draft.id,
+                    approval_log_id=services.state_machine.latest_approval_log_id(draft.id),
+                    queue=services.queue,
+                    publish_log=services.publish_log,
+                    state_machine=services.state_machine,
+                    registry=registry,
+                    cost_guard=services.cost_guard,
+                    reviews=services.reviews,
+                )
+            )
+        except BudgetExceededError:
+            logger.warning(
+                "[publish:%s] draft %s blocked by budget — stays approved for retry",
+                draft.client_id,
+                draft.short_id,
+            )
+    return actions
 
 
 class NotApprovedError(Exception):

@@ -46,6 +46,10 @@ The full slice runs for two verticals — **bakery** (Family 1, products) and
   directory live (new clients scheduled, deleted clients unscheduled, broken packs
   skipped — no restart needed), and dispatch is isolated per client/task with a
   circuit breaker so one failing tenant never starves the rest
+- **Approval preferences** (P3) — owners promote trusted draft kinds to publish on
+  autopilot (`AUTO ON gbp_post` over WhatsApp, or the REST endpoint); every
+  auto-publish is still a logged pass through the Approval State Machine, and
+  anything escalated (A2) always waits for a human, whatever the preference says
 
 Next up: multi-tenant scale-out and GBP API onboarding (see spec §14–15).
 
@@ -101,14 +105,19 @@ curl -X POST localhost:8000/clients/pilot-1/engagement/inbound \
 # draft this week's offer broadcast for the opted-in audience (owner approves before send)
 curl -X POST localhost:8000/clients/pilot-1/engagement/broadcast \
   -H 'content-type: application/json' -d '{}'
+
+# promote a trusted draft kind to auto-publish (A1 -> A0; A2 escalations always wait)
+# owners can do the same over WhatsApp: AUTO ON gbp_post / AUTO OFF gbp_post
+curl -X PUT localhost:8000/clients/pilot-1/approval-preferences \
+  -H 'content-type: application/json' -d '{"auto_publish_kinds": ["gbp_post"]}'
 ```
 
 ## Quality
 
 ```bash
-pytest                        # 104 tests: state machine, cost guard, packs, tenant
+pytest                        # 115 tests: state machine, cost guard, packs, tenant
                               # isolation, content eval, reputation, engagement,
-                              # salon pack contract, worker hardening, e2e slice
+                              # salon pack, worker hardening, approval prefs, e2e
 ruff check . && ruff format .
 ```
 

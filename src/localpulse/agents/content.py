@@ -219,10 +219,20 @@ class ContentAgent:
     def _notify_owner(self, ctx: ClientContext, drafts: list[DraftItem]) -> None:
         if not drafts or not self._registry.is_connected(ctx.client_id, "whatsapp"):
             return
-        lines = [f"🗓 {len(drafts)} draft post(s) ready for your review:"]
-        for draft in drafts:
-            lines.append(f"\n[{draft.short_id}] {draft.scheduled_for}: {draft.caption}")
-        lines.append("\nReply APPROVE <id>, EDIT <id> <new text>, or SKIP <id> for each.")
+        pending = [d for d in drafts if d.state == ApprovalState.PENDING_APPROVAL]
+        auto = [d for d in drafts if d not in pending]  # approved by standing preference
+        lines: list[str] = []
+        if auto:
+            lines.append(f"🚀 {len(auto)} post(s) publishing automatically (your AUTO setting):")
+            for draft in auto:
+                lines.append(f"\n[{draft.short_id}] {draft.scheduled_for}: {draft.caption}")
+        if pending:
+            if lines:
+                lines.append("")
+            lines.append(f"🗓 {len(pending)} draft post(s) ready for your review:")
+            for draft in pending:
+                lines.append(f"\n[{draft.short_id}] {draft.scheduled_for}: {draft.caption}")
+            lines.append("\nReply APPROVE <id>, EDIT <id> <new text>, or SKIP <id> for each.")
         send_whatsapp(
             guard=self._cost_guard,
             tool=self._registry.get(ctx.client_id, "whatsapp"),

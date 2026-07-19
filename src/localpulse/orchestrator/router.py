@@ -19,6 +19,7 @@ from localpulse.container import ClientServices, Container
 from localpulse.context.repositories import NotFoundError
 from localpulse.orchestrator.cost_guard import MessagePurpose
 from localpulse.orchestrator.messaging import send_whatsapp
+from localpulse.orchestrator.publisher import publish_ready
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,13 @@ class TaskRouter:
             with self._container.session() as session:
                 services = self._container.services(session, client_id)
                 self._execute(services, client_id, task)
+                # deliver anything the owner's standing preference auto-approved,
+                # and retry approved drafts an earlier budget block left behind
+                published = publish_ready(services, self._container.registry)
+                if published:
+                    logger.info(
+                        "auto-published %d approved draft(s) for %s", len(published), client_id
+                    )
         except NotFoundError:
             logger.warning(
                 "client %s no longer exists — skipping %s; the job will be "

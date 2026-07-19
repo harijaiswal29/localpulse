@@ -8,8 +8,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from localpulse.context.models import ApprovalState, DraftItem
+from localpulse.context.models import ApprovalPreferences, ApprovalState, DraftItem
 from localpulse.context.repositories import ApprovalLogRepository, ContentQueueRepository
+
+# Actor recorded when a draft is approved by the owner's standing preference
+# rather than a per-item tap — keeps the audit trail honest about who decided.
+PREFERENCE_ACTOR = "owner_preference"
 
 LEGAL_TRANSITIONS: dict[ApprovalState, set[ApprovalState]] = {
     ApprovalState.DRAFTED: {ApprovalState.PENDING_APPROVAL, ApprovalState.DISCARDED},
@@ -41,15 +45,41 @@ def validate_transition(current: ApprovalState, target: ApprovalState) -> None:
 class ApprovalStateMachine:
     """Applies transitions to queue items and logs every decision (auditability)."""
 
-    def __init__(self, queue: ContentQueueRepository, log: ApprovalLogRepository):
+    def __init__(
+        self,
+        queue: ContentQueueRepository,
+        log: ApprovalLogRepository,
+        prefs: ApprovalPreferences | None = None,
+    ):
         self._queue = queue
         self._log = log
+        self._prefs = prefs or ApprovalPreferences()
 
     def submit(self, draft: DraftItem, actor: str = "system") -> DraftItem:
-        """New draft enters the queue and immediately goes to the owner for approval."""
+        """New draft enters the queue and goes to the owner for approval — unless the
+        owner has promoted this draft kind to A0, in which case it is auto-approved
+        under their standing preference (still fully logged). A2-escalated drafts
+        are never auto-approved, whatever the preference says."""
         validate_transition(draft.state, ApprovalState.PENDING_APPROVAL)
         self._queue.add(draft)
-        return self._move(draft, ApprovalState.PENDING_APPROVAL, actor, "submitted for approval")
+        draft = self._move(draft, ApprovalState.PENDING_APPROVAL, actor, "submitted for approval")
+        if self._auto_approvable(draft):
+            draft = self._move(
+                draft,
+                ApprovalState.APPROVED,
+                PREFERENCE_ACTOR,
+                f"auto-approved: owner trusts {draft.kind.value} drafts",
+            )
+        return draft
+
+    def _auto_approvable(self, draft: DraftItem) -> bool:
+        if draft.meta.get("escalated"):
+            return False  # A2: a human decision was requested — never bypass it
+        return draft.kind in self._prefs.auto_publish_kinds
+
+    def latest_approval_log_id(self, draft_id: str) -> int:
+        """Id of the most recent decision for a draft — what a publish must cite."""
+        return self._log.for_draft(draft_id)[-1].id
 
     def approve(self, draft_id: str, actor: str, note: str = "") -> tuple[DraftItem, int]:
         draft = self._queue.get(draft_id)

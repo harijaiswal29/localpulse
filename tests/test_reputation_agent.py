@@ -10,7 +10,7 @@ from localpulse.agents.reputation import (
     classify_review,
 )
 from localpulse.context.models import ApprovalState, Channel, DraftKind
-from localpulse.context.repositories import CostLedgerRepository
+from localpulse.context.repositories import ClientRepository, CostLedgerRepository
 from localpulse.orchestrator.cost_guard import BudgetExceededError, CostGuard
 from localpulse.orchestrator.publisher import NotApprovedError, publish_draft
 from localpulse.packs.base import load_pack
@@ -304,10 +304,13 @@ class TestWhatsAppApprovalFlow:
         services = container.services(session, "pilot-1")
         (draft,) = services.reputation_agent.check_reviews(pilot_context)
 
-        reply = api_main._handle_owner_command(services, container, "LIST")
+        clients = ClientRepository(session)
+        reply = api_main._handle_owner_command(services, container, clients, "LIST")
         assert "⚠️" in reply and draft.short_id in reply
 
-        reply = api_main._handle_owner_command(services, container, f"APPROVE {draft.short_id}")
+        reply = api_main._handle_owner_command(
+            services, container, clients, f"APPROVE {draft.short_id}"
+        )
         assert "Approved and published" in reply
         assert container.registry.get("pilot-1", "gbp").reply_queue[0].reply == draft.caption
 

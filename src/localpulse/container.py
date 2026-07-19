@@ -100,7 +100,7 @@ class Container:
         reviews = ReviewRepository(session, client_id)
         conversations = ConversationRepository(session, client_id)
         enquiries = EnquiryRepository(session, client_id)
-        state_machine = ApprovalStateMachine(queue, approval_log)
+        state_machine = ApprovalStateMachine(queue, approval_log, prefs=context.approval_prefs)
         cost_guard = CostGuard(
             CostLedgerRepository(session, client_id),
             self.settings.default_monthly_budget_inr,

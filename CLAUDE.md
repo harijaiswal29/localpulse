@@ -142,7 +142,9 @@ Grow beyond the single pilot.
 
 **Multi-client worker hardening: done** (2026-07-19). The schedule is no longer a startup snapshot: a `worker:resync` job (interval from `WORKER_RESYNC_MINUTES`, default 5) reconciles scheduler jobs with the tenant directory — clients onboarded while the worker runs get scheduled, deleted clients get unscheduled, cadence changes re-schedule, and a client whose pack fails to load is skipped without touching the others. `TaskRouter.dispatch` never raises: per-client/task failures are contained and a circuit breaker (3 consecutive failures → 30-min cooldown) stops a broken tenant from burning worker cycles; a vanished client logs a warning and its jobs drop at the next resync.
 
-**Remaining P3 items:** GBP API integration once access is granted; owner-configurable approval preferences (A1→A0 promotions for trusted draft kinds, never for A2-escalated items).
+**Approval preferences: done** (2026-07-19). Owners promote trusted draft kinds from A1 to A0 via `ApprovalPreferences.auto_publish_kinds` — set over WhatsApp (`AUTO` / `AUTO ON <kind>` / `AUTO OFF <kind>`) or `PUT /clients/{id}/approval-preferences`. Promotion happens inside the Approval State Machine at submit: the draft still walks `drafted → pending_approval → approved` with every step logged (actor `owner_preference`), so golden rule #1 holds. **A2-escalated drafts are never auto-approved** — the state machine checks `meta["escalated"]` before the preference. Delivery is `publisher.publish_ready`, which publishes anything sitting APPROVED (called by the router after every dispatch and by the drafting API endpoints); a budget-blocked publish stays approved and retries on later cadence ticks.
+
+**Remaining P3 items:** GBP API integration once access is granted.
 
 **Carry-over open items:** apply for GBP API access (spec §15); confirm the approximate 2026 festival dates in `context/regional_calendar.py` before real pilots; real deployments must collect explicit marketing opt-in (pilot treats an inbound message as implied consent, STOP revokes).
 
