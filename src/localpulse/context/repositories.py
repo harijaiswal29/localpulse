@@ -288,21 +288,45 @@ SERVICE_WINDOW = timedelta(hours=24)
 class ConversationRepository(_ScopedRepository):
     """WhatsApp customer conversations: 24h service-window state + broadcast opt-in."""
 
-    def upsert_inbound(self, customer_number: str, customer_name: str = "") -> ConversationRecord:
-        """Record an inbound customer message — (re)opens the free service window."""
+    def upsert_inbound(
+        self, customer_number: str, customer_name: str = "", implied_opt_in: bool = False
+    ) -> tuple[ConversationRecord, bool]:
+        """Record an inbound customer message — (re)opens the free service window.
+        Returns the record and whether this was the first contact.
+
+        `implied_opt_in` is the pilot basis for marketing consent (messaging the shop
+        implies it): applied on first contact only, so a later message never revives
+        consent that STOP took away.
+        """
         record = self.get(customer_number)
+        first_contact = record is None
         if record is None:
             record = ConversationRecord(
                 client_id=self.client_id,
                 customer_number=customer_number,
                 customer_name=customer_name,
+                opt_in=implied_opt_in,
+                opt_in_source="implied_inbound" if implied_opt_in else "",
+                opt_in_at=datetime.now(UTC) if implied_opt_in else None,
             )
             self._session.add(record)
         record.last_inbound_at = datetime.now(UTC)
         if customer_name:
             record.customer_name = customer_name
         self._session.commit()
-        return record
+        return record, first_contact
+
+    def opt_in(self, customer_number: str, source: str = "keyword") -> bool:
+        """Record explicit marketing consent. Returns False if we've never heard from
+        this number — consent has to attach to a real conversation."""
+        record = self.get(customer_number)
+        if record is None:
+            return False
+        record.opt_in = True
+        record.opt_in_source = source
+        record.opt_in_at = datetime.now(UTC)
+        self._session.commit()
+        return True
 
     def get(self, customer_number: str) -> ConversationRecord | None:
         stmt = select(ConversationRecord).where(
@@ -324,6 +348,8 @@ class ConversationRepository(_ScopedRepository):
         record = self.get(customer_number)
         if record is not None:
             record.opt_in = False
+            record.opt_in_source = "revoked"
+            record.opt_in_at = datetime.now(UTC)  # when the current consent state was set
             self._session.commit()
 
     def opted_in_numbers(self) -> list[str]:
@@ -356,7 +382,9 @@ class EnquiryRepository(_ScopedRepository):
         return int(self._session.scalar(self._count_stmt(since, until)) or 0)
 
     def auto_answered_between(self, since: datetime, until: datetime) -> int:
-        stmt = self._count_stmt(since, until).where(EnquiryRecord.action.in_(["faq", "preorder"]))
+        """Everything handled without the owner — FAQs, pre-orders, consent keywords.
+        Only an escalation is "passed to you" in the monthly report."""
+        stmt = self._count_stmt(since, until).where(EnquiryRecord.action != "escalated")
         return int(self._session.scalar(stmt) or 0)
 
     def _count_stmt(self, since: datetime, until: datetime):

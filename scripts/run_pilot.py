@@ -32,12 +32,17 @@ ANSWERS = {
 
 def main() -> None:
     logging.basicConfig(level="INFO", format="%(levelname)s %(name)s: %(message)s")
-    container = Container(Settings(database_url="sqlite:///./localpulse.db"))
+    # throwaway in-memory database: the demo is the same story every time it runs
+    container = Container(Settings(database_url="sqlite:///:memory:", _env_file=None))
 
     with container.session() as session:
         print("\n=== 1. Onboarding ===")
         ctx = container.onboarding_agent(session).run("pilot-1", "bakery", ANSWERS)
         container.ensure_client_tools(ctx)
+        # the owner says hello, which opens their 24h window — alerts can go free-form
+        container.services(session, "pilot-1").conversations.upsert_inbound(
+            ctx.business.owner_whatsapp, "owner"
+        )
         print(f"Client Context created for {ctx.business.name} ({len(ctx.offerings)} offerings)")
 
         print("\n=== 2. Content Agent: a week of drafts ===")
@@ -118,12 +123,18 @@ def main() -> None:
             print(f'  {name or number}: "{text}"')
             print(f"    -> [{result.action}] {result.reply}")
 
-        print("\n=== 8. Engagement: weekly offer broadcast (A1, marketing) ===")
+        print("\n=== 8. Two of them reply START — explicit marketing consent ===")
+        for number in ("+919900112233", "+919900445566"):
+            result = agent.handle_inbound(ctx, number, "START")
+            print(f"  {number} -> [{result.action}] {result.reply}")
+
+        print("\n=== 9. Engagement: weekly offer broadcast (A1, marketing template) ===")
         broadcast = agent.draft_weekly_broadcast(ctx)
         if broadcast is not None:
             print(
                 f"  Draft [{broadcast.short_id}] -> {len(broadcast.meta['recipients'])} "
-                f"opted-in customer(s):\n  {broadcast.caption}"
+                f"opted-in customer(s) as template "
+                f"{broadcast.meta['template']['name']}:\n  {broadcast.caption}"
             )
             draft, approval_log_id = services.state_machine.approve(broadcast.id, actor="owner")
             action = publish_draft(
@@ -140,7 +151,7 @@ def main() -> None:
                 f"month's spend so far: ₹{services.cost_guard.spend_this_month():.2f}"
             )
 
-        print("\n=== 9. Insights ===")
+        print("\n=== 10. Insights ===")
         services.insights_agent.collect_daily(ctx)
         now = datetime.now(UTC)
         print(services.insights_agent.monthly_report(ctx, now.year, now.month))

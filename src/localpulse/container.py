@@ -116,12 +116,20 @@ class Container:
             enquiries=enquiries,
             state_machine=state_machine,
             cost_guard=cost_guard,
-            content_agent=ContentAgent(self.gateway, self.registry, state_machine, cost_guard),
+            content_agent=ContentAgent(
+                self.gateway, self.registry, state_machine, cost_guard, conversations
+            ),
             reputation_agent=ReputationAgent(
-                self.gateway, self.registry, state_machine, cost_guard, reviews
+                self.gateway, self.registry, state_machine, cost_guard, reviews, conversations
             ),
             engagement_agent=EngagementAgent(
-                self.gateway, self.registry, state_machine, cost_guard, conversations, enquiries
+                self.gateway,
+                self.registry,
+                state_machine,
+                cost_guard,
+                conversations,
+                enquiries,
+                implied_opt_in=self.settings.marketing_opt_in_mode == "implied",
             ),
             insights_agent=InsightsAgent(metrics, publish_log, self.registry, reviews, enquiries),
         )

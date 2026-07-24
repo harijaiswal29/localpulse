@@ -116,9 +116,14 @@ class ConversationRecord(Base):
     client_id: Mapped[str] = mapped_column(String(64), index=True)
     customer_number: Mapped[str] = mapped_column(String(32), index=True)
     customer_name: Mapped[str] = mapped_column(String(128), default="")
-    # Pilot: messaging the business implies consent to offers; STOP revokes it.
-    # Real deployments should collect explicit opt-in per Meta commerce policy.
-    opt_in: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Marketing consent, off until the customer asks for it (Meta commerce policy).
+    # A pilot may run on implied consent instead (MARKETING_OPT_IN_MODE=implied), and
+    # the source column records which basis this row was collected on. STOP revokes.
+    opt_in: Mapped[bool] = mapped_column(Boolean, default=False)
+    opt_in_source: Mapped[str] = mapped_column(String(32), default="")
+    opt_in_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None, nullable=True
+    )
     last_inbound_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 

@@ -1,6 +1,7 @@
 """Application settings. Never hard-code secrets; everything loads from env / .env."""
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -39,6 +40,11 @@ class Settings(BaseSettings):
     gbp_oauth_client_secret: str = ""
 
     default_monthly_budget_inr: float = 500.0
+
+    # Marketing consent basis: "explicit" (customer replies START) or "implied"
+    # (messaging the business counts as consent). Pilots may run implied; anything
+    # real should collect explicit consent per Meta commerce policy. STOP always wins.
+    marketing_opt_in_mode: Literal["explicit", "implied"] = "explicit"
 
     # how often the worker reconciles its schedule with the tenant directory
     worker_resync_minutes: int = 5

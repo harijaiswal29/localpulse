@@ -3,7 +3,7 @@ proves the pack contract holds beyond product retail: offerings are services
 booked by appointment, and every booking cue routes through the same generic
 engagement machinery the bakery uses."""
 
-from localpulse.context.models import OfferingType
+from localpulse.context.models import MessageTemplate, OfferingType, TemplateSlot
 from localpulse.packs.base import (
     CadenceRule,
     ContentTemplate,
@@ -207,12 +207,48 @@ PACK = VerticalPack(
                 "Done — you won't get offers from us anymore. You're always "
                 "welcome to message us here anytime."
             ),
+            opt_in_invite=(
+                "P.S. would you like our weekly slot offers and festival packages? "
+                "Reply START to join — reply STOP anytime to leave."
+            ),
+            opt_in_ack=(
+                "You're on the list! ✨ We'll send you our weekly slot offers and "
+                "festival packages. Reply STOP anytime to leave."
+            ),
             broadcast_prompt=(
-                "Write this week's short WhatsApp offer featuring the service. Polished "
-                "and friendly, no pushy sales language, invite a reply to book a slot."
+                "Name this week's offer in one short phrase — the service, and what "
+                "makes it worth booking now. Under 12 words, no greeting and no "
+                "sign-off: it is dropped into the studio's approved WhatsApp template."
             ),
         ),
     ),
+    message_templates=[
+        MessageTemplate(
+            slot=TemplateSlot.REVIEW_NUDGE,
+            name="salon_review_nudge_v1",
+            body=(
+                "Hi {customer_name}, thank you for visiting {business_name}! If you're "
+                "happy with how it turned out, would you leave us a quick review on "
+                "Google? It helps other people in {city} find us."
+            ),
+        ),
+        MessageTemplate(
+            slot=TemplateSlot.WEEKLY_OFFER,
+            name="salon_weekly_offer_v1",
+            body=(
+                "This week at {business_name}: {offer}. Reply to this message to book "
+                "your slot — weekends fill up first. Reply STOP to opt out of offers."
+            ),
+        ),
+        MessageTemplate(
+            slot=TemplateSlot.OWNER_ALERT,
+            name="salon_owner_alert_v1",
+            body=(
+                "LocalPulse update for {business_name}. Here's what needs you: "
+                "{summary}. Reply LIST to see everything waiting."
+            ),
+        ),
+    ],
     guardrails=Guardrails(
         banned_terms=[
             # beauty-claim territory that invites ASCI/consumer complaints

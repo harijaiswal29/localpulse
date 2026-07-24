@@ -20,7 +20,12 @@ from localpulse.orchestrator.cost_guard import CostGuard
 from localpulse.orchestrator.publisher import publish_ready
 from localpulse.orchestrator.router import TaskRouter
 from localpulse.tools.gbp import Review
-from tests.conftest import PILOT_ANSWERS, make_test_settings
+from tests.conftest import (
+    PILOT_ANSWERS,
+    make_test_settings,
+    open_owner_window,
+    opt_in_customer,
+)
 
 WEEK = date(2026, 7, 27)
 CUSTOMER = "+919900112233"
@@ -70,6 +75,7 @@ class TestAutoApproval:
     ):
         ctx = enable_auto(session, [DraftKind.GBP_POST])
         services = container.services(session, "pilot-1")
+        open_owner_window(services)
         services.content_agent.run(ctx, ContentTrigger(week_start=WEEK))
         body = container.registry.get("pilot-1", "whatsapp").sent[-1].body
         assert "publishing automatically" in body
@@ -111,7 +117,7 @@ class TestBudgetSafety:
     def test_blocked_broadcast_stays_approved_and_retries(self, container, session, pilot_context):
         ctx = enable_auto(session, [DraftKind.WHATSAPP_BROADCAST])
         services = container.services(session, "pilot-1")
-        services.engagement_agent.handle_inbound(ctx, CUSTOMER, "what are your hours?")
+        opt_in_customer(services, ctx, CUSTOMER)
         draft = services.engagement_agent.draft_weekly_broadcast(ctx)
         assert draft.state == ApprovalState.APPROVED  # standing preference applied
 

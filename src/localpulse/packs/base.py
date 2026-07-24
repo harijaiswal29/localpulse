@@ -1,8 +1,9 @@
 """Vertical Pack contract. ALL vertical-specific logic lives in packs (golden rule #2).
 
 A pack is a package under localpulse.packs.<ref> exporting PACK: VerticalPack with
-templates, onboarding_questions, offering_schema, calendar_weights, playbook, guardrails.
-The engine loads a pack by client_context.vertical_pack_ref.
+templates, onboarding_questions, offering_schema, calendar_weights, playbook,
+guardrails and message_templates. The engine loads a pack by
+client_context.vertical_pack_ref.
 """
 
 from __future__ import annotations
@@ -10,9 +11,9 @@ from __future__ import annotations
 import importlib
 import re
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
-from localpulse.context.models import OfferingType
+from localpulse.context.models import MessageTemplate, OfferingType, TemplateSlot
 
 
 class ContentTemplate(BaseModel):
@@ -69,6 +70,8 @@ class EngagementPlaybook(BaseModel):
     preorder_ack: str = ""
     escalation_ack: str = ""  # holding reply while the owner is looped in
     opt_out_ack: str = ""  # confirmation after STOP/unsubscribe
+    opt_in_invite: str = ""  # asks for marketing consent, once, on a first contact
+    opt_in_ack: str = ""  # confirmation after START/subscribe
     broadcast_prompt: str = ""  # instruction for the weekly offer broadcast draft
 
 
@@ -97,9 +100,24 @@ class VerticalPack(BaseModel):
     calendar_weights: dict[str, float] = {}
     playbook: Playbook
     guardrails: Guardrails
+    # WhatsApp message templates — the wording for each out-of-window slot. A pack
+    # without them can still run entirely inside the free service window; anything
+    # paid (nudges, broadcasts, cold owner alerts) needs the matching slot.
+    message_templates: list[MessageTemplate] = []
+
+    @model_validator(mode="after")
+    def _one_template_per_slot(self) -> VerticalPack:
+        slots = [t.slot for t in self.message_templates]
+        duplicated = {s.value for s in slots if slots.count(s) > 1}
+        if duplicated:
+            raise ValueError(f"pack {self.ref!r} declares two templates for: {duplicated}")
+        return self
 
     def event_weight(self, event_name: str) -> float:
         return self.calendar_weights.get(event_name.strip().lower(), 1.0)
+
+    def message_template(self, slot: TemplateSlot) -> MessageTemplate | None:
+        return next((t for t in self.message_templates if t.slot is slot), None)
 
 
 class PackLoadError(Exception):

@@ -15,14 +15,31 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+class OutboundTemplate:
+    """A rendered message template, ready for the wire.
+
+    `body` is the rendered text — what the owner approved and what the mock records;
+    `params` is the same content in the positional form the Cloud API expects.
+    """
+
+    name: str
+    language: str
+    params: list[str]
+    body: str
+
+
+@dataclass
 class OutboundMessage:
     to: str
     body: str
     category: str
+    template: str = ""  # template name when sent as a template, "" for free-form text
 
 
 class WhatsAppTool(Protocol):
-    def send(self, to: str, body: str, category: str) -> str: ...
+    def send(
+        self, to: str, body: str, category: str, template: OutboundTemplate | None = None
+    ) -> str: ...
 
 
 @dataclass
@@ -32,8 +49,12 @@ class MockWhatsAppTool:
     client_id: str
     sent: list[OutboundMessage] = field(default_factory=list)
 
-    def send(self, to: str, body: str, category: str) -> str:
-        message = OutboundMessage(to=to, body=body, category=category)
+    def send(
+        self, to: str, body: str, category: str, template: OutboundTemplate | None = None
+    ) -> str:
+        message = OutboundMessage(
+            to=to, body=body, category=category, template=template.name if template else ""
+        )
         self.sent.append(message)
         logger.info("[whatsapp:%s] -> %s (%s): %s", self.client_id, to, category, body)
         return f"wa-mock:{len(self.sent)}"
@@ -43,10 +64,9 @@ class MockWhatsAppTool:
 class CloudApiWhatsAppTool:
     """WhatsApp Business Cloud API adapter (Meta's first-party BSP).
 
-    Pilot-thin: sends free-form text, which the platform accepts inside the 24h
-    service window — exactly where the Engagement Agent operates. Utility and
-    marketing sends outside the window need pre-approved templates; template
-    management lands when a pilot outgrows the service window (spec §7).
+    Free-form text inside the 24h service window, a pre-approved template outside
+    it — the two things the platform actually accepts. Which one applies is decided
+    upstream by the Cost Guard's category, never here.
     """
 
     client_id: str
@@ -54,22 +74,51 @@ class CloudApiWhatsAppTool:
     phone_number_id: str
     base_url: str = "https://graph.facebook.com/v20.0"
 
-    def send(self, to: str, body: str, category: str) -> str:
+    def send(
+        self, to: str, body: str, category: str, template: OutboundTemplate | None = None
+    ) -> str:
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": to,
+        }
+        payload.update(self._text(body) if template is None else self._template(template))
         response = httpx.post(
             f"{self.base_url}/{self.phone_number_id}/messages",
             headers={"Authorization": f"Bearer {self.api_key}"},
-            json={
-                "messaging_product": "whatsapp",
-                "recipient_type": "individual",
-                "to": to,
-                "type": "text",
-                "text": {"body": body},
-            },
+            json=payload,
             timeout=30,
         )
         response.raise_for_status()
         message_id = response.json()["messages"][0]["id"]
         logger.info(
-            "[whatsapp:%s] -> %s (%s) via cloud api: %s", self.client_id, to, category, message_id
+            "[whatsapp:%s] -> %s (%s%s) via cloud api: %s",
+            self.client_id,
+            to,
+            category,
+            f", template {template.name}" if template else "",
+            message_id,
         )
         return message_id
+
+    @staticmethod
+    def _text(body: str) -> dict:
+        return {"type": "text", "text": {"body": body}}
+
+    @staticmethod
+    def _template(template: OutboundTemplate) -> dict:
+        message: dict = {
+            "type": "template",
+            "template": {
+                "name": template.name,
+                "language": {"code": template.language},
+            },
+        }
+        if template.params:
+            message["template"]["components"] = [
+                {
+                    "type": "body",
+                    "parameters": [{"type": "text", "text": p} for p in template.params],
+                }
+            ]
+        return message

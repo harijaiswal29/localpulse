@@ -50,6 +50,15 @@ The full slice runs for two verticals — **bakery** (Family 1, products) and
   autopilot (`AUTO ON gbp_post` over WhatsApp, or the REST endpoint); every
   auto-publish is still a logged pass through the Approval State Machine, and
   anything escalated (A2) always waits for a human, whatever the preference says
+- **WhatsApp message templates** (P3) — outside the 24h window WhatsApp delivers
+  approved templates only, so every paid send resolves to one: packs own the wording
+  for three engine-owned slots (review nudge, weekly offer, owner alert), the choke
+  point refuses a paid send without one *before* charging, and inside the window the
+  same words still go free-form. What the owner approves is byte-for-byte what each
+  recipient receives ([submission runbook](docs/whatsapp-templates.md))
+- **Explicit marketing consent** (P3) — customers join the broadcast audience only by
+  replying `START`, recorded with its basis and timestamp; the pack asks once, on a
+  first contact, inside the free window; `STOP` always wins
 
 Next up: multi-tenant scale-out and GBP API onboarding (see spec §14–15).
 
@@ -70,6 +79,7 @@ code — agents only talk to the model gateway.
 uvicorn localpulse.api.main:app --reload    # API + WhatsApp webhook
 python -m localpulse.orchestrator.worker     # cadence engine / scheduled agent runs
 python scripts/run_pilot.py                  # seeded end-to-end demo in the terminal
+python scripts/export_whatsapp_templates.py bakery   # message templates to submit to Meta
 ```
 
 Try the flow with curl:
@@ -102,6 +112,11 @@ curl -X POST localhost:8000/clients/pilot-1/engagement/inbound \
   -H 'content-type: application/json' \
   -d '{"customer_number": "+919900112233", "customer_name": "Priya", "text": "What time do you close?"}'
 
+# a customer opts in to offers — nothing else puts them in the broadcast audience
+curl -X POST localhost:8000/clients/pilot-1/engagement/inbound \
+  -H 'content-type: application/json' \
+  -d '{"customer_number": "+919900112233", "text": "START"}'
+
 # draft this week's offer broadcast for the opted-in audience (owner approves before send)
 curl -X POST localhost:8000/clients/pilot-1/engagement/broadcast \
   -H 'content-type: application/json' -d '{}'
@@ -115,9 +130,10 @@ curl -X PUT localhost:8000/clients/pilot-1/approval-preferences \
 ## Quality
 
 ```bash
-pytest                        # 115 tests: state machine, cost guard, packs, tenant
+pytest                        # 145 tests: state machine, cost guard, packs, tenant
                               # isolation, content eval, reputation, engagement,
-                              # salon pack, worker hardening, approval prefs, e2e
+                              # salon pack, worker hardening, approval prefs,
+                              # WhatsApp templates + consent, e2e
 ruff check . && ruff format .
 ```
 

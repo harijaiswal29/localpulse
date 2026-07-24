@@ -27,6 +27,7 @@ from localpulse.orchestrator.cost_guard import (
 )
 from localpulse.orchestrator.messaging import send_whatsapp
 from localpulse.orchestrator.tool_registry import ToolRegistry
+from localpulse.tools.whatsapp import OutboundTemplate
 
 if TYPE_CHECKING:
     from localpulse.container import ClientServices
@@ -61,6 +62,13 @@ def publish_ready(services: ClientServices, registry: ToolRegistry) -> list[Publ
                 draft.short_id,
             )
     return actions
+
+
+def _approved_template(draft: DraftItem) -> OutboundTemplate | None:
+    """The rendered template the owner approved, carried on the draft since drafting.
+    Publishing re-sends exactly those words and parameters — it never re-renders."""
+    stored = draft.meta.get("template")
+    return OutboundTemplate(**stored) if stored else None
 
 
 class NotApprovedError(Exception):
@@ -116,6 +124,7 @@ def publish_draft(
             body=draft.caption,
             purpose=MessagePurpose.NOTIFICATION,
             within_service_window=bool(draft.meta.get("within_service_window", False)),
+            template=_approved_template(draft),
         )
         channel = Channel.WHATSAPP
     elif draft.kind == DraftKind.WHATSAPP_BROADCAST:
@@ -128,6 +137,7 @@ def publish_draft(
         # send; a BudgetExceededError leaves the draft approved and retryable.
         cost_guard.ensure_affordable(MessageCategory.MARKETING, len(recipients))
         whatsapp = registry.get(draft.client_id, "whatsapp")
+        template = _approved_template(draft)
         for number in recipients:
             send_whatsapp(
                 guard=cost_guard,
@@ -136,6 +146,7 @@ def publish_draft(
                 body=draft.caption,
                 purpose=MessagePurpose.MARKETING_BROADCAST,
                 within_service_window=False,
+                template=template,
             )
         external_ref = f"wa-broadcast:{len(recipients)}"
         channel = Channel.WHATSAPP

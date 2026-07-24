@@ -35,10 +35,8 @@ class MockProvider:
                 f"just search for {business} on Google Maps. 🙏"
             )[: max_tokens * 4]
         if "offer" in facts:
-            return (
-                f"This week at {business}: {facts['offer']}! Reply right here to "
-                f"grab yours before the weekend rush. ✨"
-            )[: max_tokens * 4]
+            # the offer line only — it drops into the pack's approved WhatsApp template
+            return f"{facts['offer']}, this week only"[: max_tokens * 4]
         offering = facts.get("offering", "")
         occasion = facts.get("occasion", "")
         hook = facts.get("hook", "something special")

@@ -31,6 +31,18 @@ def make_test_settings() -> Settings:
     )
 
 
+def open_owner_window(services) -> None:
+    """The owner messaged us recently, so their 24h window is open and alerts reach
+    them in full. Outside it WhatsApp delivers only the short owner-alert template."""
+    services.conversations.upsert_inbound(services.context.business.owner_whatsapp, "owner")
+
+
+def opt_in_customer(services, ctx, number: str, name: str = "") -> None:
+    """Explicit marketing consent, collected the way a customer gives it: they reply
+    START. Nothing else puts a number in the broadcast audience."""
+    services.engagement_agent.handle_inbound(ctx, number, "START", name)
+
+
 @pytest.fixture
 def container() -> Container:
     return Container(make_test_settings())

@@ -13,6 +13,7 @@ import pytest
 from localpulse.agents.content import ContentTrigger
 from localpulse.context.models import ApprovalState, DraftKind, OfferingType
 from localpulse.packs.base import load_pack
+from tests.conftest import open_owner_window, opt_in_customer
 
 SALON_ANSWERS: dict[str, str] = {
     "salon_name": "Blush & Bloom Studio",
@@ -114,6 +115,7 @@ class TestEngagementSalonPlaybook:
 
     def test_booking_named_service_quotes_and_alerts_owner(self, container, session, salon_context):
         services = salon_services(container, session)
+        open_owner_window(services)
         result = services.engagement_agent.handle_inbound(
             salon_context, CUSTOMER, "I'd like to book a gold facial for Saturday", "Meera"
         )
@@ -132,12 +134,11 @@ class TestEngagementSalonPlaybook:
         assert result.action == "escalated"
         assert "₹" not in result.reply
         pack = load_pack("salon")
-        assert result.reply == pack.playbook.engagement.escalation_ack
+        assert result.reply.startswith(pack.playbook.engagement.escalation_ack)
 
     def test_weekly_broadcast_draft_carries_stop_footer(self, container, session, salon_context):
         services = salon_services(container, session)
-        # a customer messaging in opts them into the pilot broadcast audience
-        services.engagement_agent.handle_inbound(salon_context, CUSTOMER, "prices please?")
+        opt_in_customer(services, salon_context, CUSTOMER)
         draft = services.engagement_agent.draft_weekly_broadcast(salon_context)
         assert draft is not None
         assert draft.kind == DraftKind.WHATSAPP_BROADCAST

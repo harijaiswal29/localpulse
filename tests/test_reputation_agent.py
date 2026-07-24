@@ -15,6 +15,7 @@ from localpulse.orchestrator.cost_guard import BudgetExceededError, CostGuard
 from localpulse.orchestrator.publisher import NotApprovedError, publish_draft
 from localpulse.packs.base import load_pack
 from localpulse.tools.gbp import Review
+from tests.conftest import open_owner_window
 
 POSITIVE = Review(
     review_id="rev-pos",
@@ -122,6 +123,7 @@ class TestCheckReviews:
     def test_owner_notification_flags_escalations(self, container, session, pilot_context):
         seed_reviews(container, POSITIVE, NEGATIVE)
         services = container.services(session, "pilot-1")
+        open_owner_window(services)
         services.reputation_agent.check_reviews(pilot_context)
 
         whatsapp = container.registry.get("pilot-1", "whatsapp")

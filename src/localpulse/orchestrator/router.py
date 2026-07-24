@@ -18,8 +18,9 @@ from localpulse.agents.content import ContentTrigger
 from localpulse.container import ClientServices, Container
 from localpulse.context.repositories import NotFoundError
 from localpulse.orchestrator.cost_guard import MessagePurpose
-from localpulse.orchestrator.messaging import send_whatsapp
+from localpulse.orchestrator.messaging import notify_owner
 from localpulse.orchestrator.publisher import publish_ready
+from localpulse.packs.base import load_pack
 
 logger = logging.getLogger(__name__)
 
@@ -127,13 +128,15 @@ class TaskRouter:
             now = datetime.now(UTC)
             previous = now.replace(day=1) - timedelta(days=1)
             report = services.insights_agent.monthly_report(ctx, previous.year, previous.month)
-            send_whatsapp(
+            notify_owner(
                 guard=services.cost_guard,
                 tool=self._container.registry.get(client_id, "whatsapp"),
-                to=ctx.business.owner_whatsapp,
+                ctx=ctx,
+                pack=load_pack(ctx.vertical_pack_ref),
                 body=report,
                 purpose=MessagePurpose.NOTIFICATION,
-                within_service_window=False,
+                window_open=services.conversations.window_open(ctx.business.owner_whatsapp),
+                summary=f"your {previous:%B} report is ready — reply REPORT for it",
             )
         elif task == "approvals.sweep_expired":
             expired = services.state_machine.sweep_expired()

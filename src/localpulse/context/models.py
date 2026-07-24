@@ -6,11 +6,12 @@ a PublishedAction or a DraftItem that enters the approval queue.
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import date, datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ApprovalState(StrEnum):
@@ -90,6 +91,79 @@ class DraftKind(StrEnum):
     REVIEW_REPLY = "review_reply"
     REVIEW_NUDGE = "review_nudge"  # post-purchase review solicitation (spec §5.3)
     WHATSAPP_BROADCAST = "whatsapp_broadcast"
+
+
+class TemplateSlot(StrEnum):
+    """The out-of-window message slots the engine can send. The engine owns the slot
+    (where it is sent from, and what WhatsApp charges for it); the pack owns the wording."""
+
+    REVIEW_NUDGE = "review_nudge"  # post-purchase "please review us"
+    WEEKLY_OFFER = "weekly_offer"  # marketing broadcast to the opted-in audience
+    OWNER_ALERT = "owner_alert"  # re-opens a cold owner window so detail can follow
+
+
+# What the engine can fill for each slot. A pack's wording may use any subset of
+# these placeholders and nothing else — anything else has no value to fill it with.
+SLOT_PARAMS: dict[TemplateSlot, set[str]] = {
+    TemplateSlot.REVIEW_NUDGE: {"business_name", "customer_name", "city"},
+    TemplateSlot.WEEKLY_OFFER: {"business_name", "offer", "city"},
+    TemplateSlot.OWNER_ALERT: {"business_name", "summary"},
+}
+
+# Meta's rules for template names and bodies, enforced at pack load so a bad
+# template fails here rather than at submission time (or at 2am on a real send).
+_TEMPLATE_NAME = re.compile(r"^[a-z][a-z0-9_]{2,60}$")
+_PLACEHOLDER = re.compile(r"\{([a-z_][a-z0-9_]*)\}")
+_ADJACENT_PLACEHOLDERS = re.compile(r"\}\s*\{")
+_STOP_KEYWORD = re.compile(r"\bSTOP\b")
+
+
+class MessageTemplate(BaseModel):
+    """A WhatsApp message template: fixed wording, pre-approved by Meta, with named
+    placeholders the engine fills at send time.
+
+    Outside the 24h service window WhatsApp delivers nothing else, so every paid
+    send resolves to one of these. The wording is a vertical judgement (it lives in
+    the pack); which slots exist and what each one costs is engine.
+    """
+
+    slot: TemplateSlot
+    name: str  # the name registered with Meta, e.g. "bakery_review_nudge_v1"
+    body: str  # fixed text with {named} placeholders
+    language: str = "en"  # Meta language code
+
+    @property
+    def params(self) -> list[str]:
+        """Placeholder names in body order — Meta templates take positional params."""
+        return _PLACEHOLDER.findall(self.body)
+
+    @model_validator(mode="after")
+    def _check_meta_rules(self) -> MessageTemplate:
+        if not _TEMPLATE_NAME.match(self.name):
+            raise ValueError(f"template name {self.name!r} must be lowercase snake_case")
+        body = self.body.strip()
+        if not body:
+            raise ValueError(f"template {self.name!r} has an empty body")
+        params = self.params
+        if len(params) != len(set(params)):
+            raise ValueError(f"template {self.name!r} repeats a placeholder")
+        unknown = set(params) - SLOT_PARAMS[self.slot]
+        if unknown:
+            raise ValueError(
+                f"template {self.name!r} uses placeholders the engine cannot fill for "
+                f"the {self.slot.value} slot: {', '.join(sorted(unknown))}"
+            )
+        # Meta rejects bodies that open or close on a variable, or chain two together:
+        # the approved part of a template has to be the fixed text, not the parameters.
+        if _PLACEHOLDER.match(body) or body.endswith("}"):
+            raise ValueError(f"template {self.name!r} must not start or end with a placeholder")
+        if _ADJACENT_PLACEHOLDERS.search(body):
+            raise ValueError(f"template {self.name!r} has two adjacent placeholders")
+        if self.slot is TemplateSlot.WEEKLY_OFFER and not _STOP_KEYWORD.search(body):
+            # The opt-out lives inside the approved body: a template send is fixed
+            # text, so the engine can no longer append a footer to it.
+            raise ValueError(f"marketing template {self.name!r} must tell the reader to reply STOP")
+        return self
 
 
 class ApprovalPreferences(BaseModel):

@@ -19,7 +19,12 @@ from localpulse.context.repositories import CostLedgerRepository
 from localpulse.orchestrator.cost_guard import BudgetExceededError, CostGuard
 from localpulse.orchestrator.publisher import publish_draft
 from localpulse.tools.whatsapp import CloudApiWhatsAppTool, MockWhatsAppTool
-from tests.conftest import PILOT_ANSWERS, make_test_settings
+from tests.conftest import (
+    PILOT_ANSWERS,
+    make_test_settings,
+    open_owner_window,
+    opt_in_customer,
+)
 
 OWNER = PILOT_ANSWERS["owner_whatsapp"]
 CUSTOMER = "+919900112233"
@@ -77,6 +82,7 @@ class TestPreorder:
         self, container, session, pilot_context
     ):
         services = services_for(container, session)
+        open_owner_window(services)
         result = services.engagement_agent.handle_inbound(
             pilot_context, CUSTOMER, "I want to order a modak box for Saturday", "Priya"
         )
@@ -110,20 +116,30 @@ class TestPreorder:
 class TestEscalation:
     def test_unknown_question_never_gets_a_guessed_reply(self, container, session, pilot_context):
         services = services_for(container, session)
+        open_owner_window(services)
         result = services.engagement_agent.handle_inbound(
             pilot_context, CUSTOMER, "Do you make sugar-free vegan black forest pastries?"
         )
         assert result.action == "escalated"
         # the customer reply is exactly the pack's holding message — deterministic
-        assert result.reply == (
+        assert result.reply.startswith(
             "Thanks for your message! Let me check with the owner — "
             "you'll hear back right here shortly."
         )
         owner_msgs = [m for m in whatsapp_tool(container).sent if m.to == OWNER]
         assert any("sugar-free vegan black forest" in m.body for m in owner_msgs)
 
+    def test_first_contact_asks_for_marketing_consent_once(self, container, session, pilot_context):
+        services = services_for(container, session)
+        first = services.engagement_agent.handle_inbound(pilot_context, CUSTOMER, "your hours?")
+        assert "Reply START" in first.reply  # consent is asked for, never assumed
+        assert CUSTOMER not in services.conversations.opted_in_numbers()
+        second = services.engagement_agent.handle_inbound(pilot_context, CUSTOMER, "where are you?")
+        assert "Reply START" not in second.reply  # asked once, not on every message
+
     def test_escalation_reply_is_still_free(self, container, session, pilot_context):
         services = services_for(container, session)
+        open_owner_window(services)
         services.engagement_agent.handle_inbound(pilot_context, CUSTOMER, "random question?!")
         assert services.cost_guard.spend_this_month() == 0.0
 
@@ -131,7 +147,7 @@ class TestEscalation:
 class TestOptOut:
     def test_stop_removes_customer_from_broadcast_audience(self, container, session, pilot_context):
         services = services_for(container, session)
-        services.engagement_agent.handle_inbound(pilot_context, CUSTOMER, "what are your hours?")
+        opt_in_customer(services, pilot_context, CUSTOMER)
         assert CUSTOMER in services.conversations.opted_in_numbers()
         result = services.engagement_agent.handle_inbound(pilot_context, CUSTOMER, "STOP")
         assert result.action == "opt_out"
@@ -146,8 +162,8 @@ class TestOptOut:
 
 class TestWeeklyBroadcast:
     def seed_audience(self, services, ctx, agent):
-        agent.handle_inbound(ctx, CUSTOMER, "what are your hours?")
-        agent.handle_inbound(ctx, "+919900445566", "menu please", "Arjun")
+        opt_in_customer(services, ctx, CUSTOMER)
+        opt_in_customer(services, ctx, "+919900445566", "Arjun")
 
     def test_draft_enters_approval_queue_with_audience(self, container, session, pilot_context):
         services = services_for(container, session)
@@ -315,6 +331,10 @@ class TestEngagementApi:
         client.post(
             "/clients/pilot-1/engagement/inbound",
             json={"customer_number": CUSTOMER, "text": "menu please"},
+        )
+        client.post(  # the customer opts in explicitly — nothing else builds an audience
+            "/clients/pilot-1/engagement/inbound",
+            json={"customer_number": CUSTOMER, "text": "START"},
         )
         response = client.post("/clients/pilot-1/engagement/broadcast", json={})
         assert response.status_code == 200

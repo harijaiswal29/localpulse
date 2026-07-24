@@ -92,15 +92,28 @@ class ApprovalStateMachine:
         draft = self._move(draft, ApprovalState.REJECTED, actor, note)
         return self._move(draft, ApprovalState.DISCARDED, "system", "rejected by owner")
 
-    def edit(self, draft_id: str, new_caption: str, actor: str) -> DraftItem:
+    def edit(
+        self,
+        draft_id: str,
+        new_caption: str,
+        actor: str,
+        meta_updates: dict | None = None,
+    ) -> DraftItem:
         """Owner edit: caption changes, item stays pending. Edits are logged so they
-        can feed back into the brand-voice profile (spec §9.5)."""
+        can feed back into the brand-voice profile (spec §9.5). `meta_updates` keeps
+        anything the caption is derived from in step with it — a templated draft
+        carries the rendered template that publishing will send."""
         draft = self._queue.get(draft_id)
         if draft.state != ApprovalState.PENDING_APPROVAL:
             raise IllegalTransitionError(draft.state, ApprovalState.PENDING_APPROVAL)
         original = draft.caption
         draft.caption = new_caption
-        draft.meta = {**draft.meta, "edited": True, "original_caption": original}
+        draft.meta = {
+            **draft.meta,
+            **(meta_updates or {}),
+            "edited": True,
+            "original_caption": original,
+        }
         self._queue.save(draft)
         self._log.log(draft.id, draft.state.value, draft.state.value, actor, "caption edited")
         return draft

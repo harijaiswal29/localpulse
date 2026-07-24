@@ -9,6 +9,7 @@ from localpulse.agents.content import ContentTrigger, Slot, check_guardrails, pl
 from localpulse.container import Container
 from localpulse.context.models import ApprovalState, DraftKind
 from localpulse.packs.base import load_pack
+from tests.conftest import open_owner_window
 
 WEEK_START = date(2026, 7, 20)  # a plain week (no festivals)
 GANESH_WEEK = date(2026, 9, 14)  # Ganesh Chaturthi falls on this Monday
@@ -48,6 +49,7 @@ def test_festival_week_produces_festival_post(services, pilot_context):
 
 
 def test_owner_receives_approval_preview_on_whatsapp(services, pilot_context, container):
+    open_owner_window(services)
     services.content_agent.run(pilot_context, ContentTrigger(week_start=WEEK_START))
     whatsapp = container.registry.get("pilot-1", "whatsapp")
     assert whatsapp.sent, "owner must get a preview message"

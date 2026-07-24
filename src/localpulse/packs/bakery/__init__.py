@@ -1,6 +1,6 @@
 """Bakery Vertical Pack (Family 1: product retail & food). The P0 launch vertical."""
 
-from localpulse.context.models import OfferingType
+from localpulse.context.models import MessageTemplate, OfferingType, TemplateSlot
 from localpulse.packs.base import (
     CadenceRule,
     ContentTemplate,
@@ -187,12 +187,48 @@ PACK = VerticalPack(
                 "Done — you won't get offers from us anymore. You're always "
                 "welcome to message us here anytime."
             ),
+            opt_in_invite=(
+                "P.S. want to hear about our weekly bakes and festival specials? "
+                "Reply START and we'll add you — reply STOP anytime to leave."
+            ),
+            opt_in_ack=(
+                "You're on the list! 🧁 We'll send you our weekly bakes and festival "
+                "specials. Reply STOP anytime to leave."
+            ),
             broadcast_prompt=(
-                "Write this week's short WhatsApp offer featuring the item. Warm and "
-                "homely, no pushy sales language, invite a reply to reserve."
+                "Name this week's offer in one short phrase — the item, and what makes "
+                "it worth coming in for. Under 12 words, no greeting and no sign-off: "
+                "it is dropped into the shop's approved WhatsApp template."
             ),
         ),
     ),
+    message_templates=[
+        MessageTemplate(
+            slot=TemplateSlot.REVIEW_NUDGE,
+            name="bakery_review_nudge_v1",
+            body=(
+                "Hi {customer_name}, thank you for visiting {business_name}! If you "
+                "enjoyed what you picked up, would you leave us a quick review on "
+                "Google? It genuinely helps a small neighbourhood bakery like ours."
+            ),
+        ),
+        MessageTemplate(
+            slot=TemplateSlot.WEEKLY_OFFER,
+            name="bakery_weekly_offer_v1",
+            body=(
+                "Fresh from {business_name} this week: {offer}. Reply to this message "
+                "to reserve yours — we bake to order. Reply STOP to opt out of offers."
+            ),
+        ),
+        MessageTemplate(
+            slot=TemplateSlot.OWNER_ALERT,
+            name="bakery_owner_alert_v1",
+            body=(
+                "LocalPulse update for {business_name}. Here's what needs you: "
+                "{summary}. Reply LIST to see everything waiting."
+            ),
+        ),
+    ],
     guardrails=Guardrails(
         banned_terms=[
             "cure",

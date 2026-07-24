@@ -19,10 +19,11 @@ from localpulse.context.models import (
     DraftKind,
     Offering,
 )
+from localpulse.context.repositories import ConversationRepository
 from localpulse.llm.gateway import ModelGateway
 from localpulse.orchestrator.approval import ApprovalStateMachine
 from localpulse.orchestrator.cost_guard import CostGuard, MessagePurpose
-from localpulse.orchestrator.messaging import send_whatsapp
+from localpulse.orchestrator.messaging import notify_owner
 from localpulse.orchestrator.tool_registry import ToolRegistry
 from localpulse.packs.base import ContentTemplate, VerticalPack, load_pack
 
@@ -118,11 +119,13 @@ class ContentAgent:
         registry: ToolRegistry,
         state_machine: ApprovalStateMachine,
         cost_guard: CostGuard,
+        conversations: ConversationRepository,
     ):
         self._gateway = gateway
         self._registry = registry
         self._state_machine = state_machine
         self._cost_guard = cost_guard
+        self._conversations = conversations
 
     def run(self, ctx: ClientContext, trigger: ContentTrigger) -> list[DraftItem]:
         pack = load_pack(ctx.vertical_pack_ref)
@@ -233,11 +236,14 @@ class ContentAgent:
             for draft in pending:
                 lines.append(f"\n[{draft.short_id}] {draft.scheduled_for}: {draft.caption}")
             lines.append("\nReply APPROVE <id>, EDIT <id> <new text>, or SKIP <id> for each.")
-        send_whatsapp(
+        summary = f"{len(pending)} post(s) waiting for approval" if pending else "posts published"
+        notify_owner(
             guard=self._cost_guard,
             tool=self._registry.get(ctx.client_id, "whatsapp"),
-            to=ctx.business.owner_whatsapp,
+            ctx=ctx,
+            pack=load_pack(ctx.vertical_pack_ref),
             body="\n".join(lines),
             purpose=MessagePurpose.APPROVAL_REQUEST,
-            within_service_window=True,  # owner chat stays warm; BSP window state later
+            window_open=self._conversations.window_open(ctx.business.owner_whatsapp),
+            summary=summary,
         )

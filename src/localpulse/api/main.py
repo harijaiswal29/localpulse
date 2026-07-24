@@ -3,7 +3,8 @@ onboarding endpoints. Owner interaction happens entirely in WhatsApp (spec §9).
 
 from __future__ import annotations
 
-from datetime import date
+from dataclasses import asdict
+from datetime import UTC, date, datetime, timedelta
 
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel
@@ -11,12 +12,19 @@ from pydantic import BaseModel
 from localpulse.agents.content import ContentTrigger
 from localpulse.config import Settings
 from localpulse.container import ClientServices, Container
-from localpulse.context.models import ApprovalState, DraftItem, DraftKind
+from localpulse.context.models import ApprovalState, DraftItem, DraftKind, TemplateSlot
 from localpulse.context.repositories import ClientRepository, NotFoundError
 from localpulse.orchestrator.approval import IllegalTransitionError
 from localpulse.orchestrator.cost_guard import BudgetExceededError, MessagePurpose
 from localpulse.orchestrator.messaging import send_whatsapp
 from localpulse.orchestrator.publisher import publish_draft, publish_ready
+from localpulse.orchestrator.templates import (
+    SLOT_CONTENT_PARAM,
+    TemplateRenderError,
+    rerender,
+)
+from localpulse.packs.base import load_pack
+from localpulse.tools.whatsapp import OutboundTemplate
 
 _KIND_NAMES = ", ".join(kind.value for kind in DraftKind)
 
@@ -117,19 +125,60 @@ def _handle_auto_command(
     return reply
 
 
+def _edit_draft(services: ClientServices, draft: DraftItem, new_text: str, actor: str) -> str:
+    """Apply an owner edit. A draft that goes out as a WhatsApp template can only be
+    edited where the template has a parameter — the rest of the wording is what Meta
+    approved, and rewriting it would mean sending something the platform never saw."""
+    slot_name = draft.meta.get("template_slot")
+    if not slot_name:
+        services.state_machine.edit(draft.id, new_text, actor=actor)
+        return f"✏️ Updated [{draft.short_id}]. Reply APPROVE {draft.short_id} when ready."
+
+    slot = TemplateSlot(slot_name)
+    template = load_pack(services.context.vertical_pack_ref).message_template(slot)
+    param = SLOT_CONTENT_PARAM.get(slot)
+    if template is None or param is None:
+        return (
+            f"[{draft.short_id}] goes out as a WhatsApp-approved template, so its wording "
+            f"is fixed. Reply SKIP {draft.short_id} if you'd rather it wasn't sent."
+        )
+    try:
+        rendered = rerender(template, OutboundTemplate(**draft.meta["template"]), param, new_text)
+    except TemplateRenderError:
+        return f"That doesn't fit the approved message. Send: EDIT {draft.short_id} <new {param}>."
+    services.state_machine.edit(
+        draft.id,
+        rendered.body,
+        actor=actor,
+        meta_updates={"template": asdict(rendered), param: new_text},
+    )
+    return (
+        f"✏️ Updated [{draft.short_id}] — it now reads:\n{rendered.body}\n\n"
+        f"Reply APPROVE {draft.short_id} when ready."
+    )
+
+
 def _handle_owner_command(
     services: ClientServices, container: Container, clients: ClientRepository, text: str
 ) -> str:
-    """Parse an owner WhatsApp message: LIST · APPROVE <id> · EDIT <id> <text> ·
-    SKIP <id> · AUTO [ON|OFF <kind>]."""
+    """Parse an owner WhatsApp message: LIST · REPORT · APPROVE <id> ·
+    EDIT <id> <text> · SKIP <id> · AUTO [ON|OFF <kind>]."""
     words = text.strip().split(maxsplit=2)
     if not words:
-        return "Reply LIST to see drafts, or APPROVE/EDIT/SKIP <id>."
+        return "Reply LIST to see drafts, REPORT for your month, or APPROVE/EDIT/SKIP <id>."
     command = words[0].lower()
     owner = "owner"
 
     if command == "auto":
         return _handle_auto_command(services, clients, words[1:])
+
+    if command == "report":
+        # The owner-alert template can only nudge — this is how the detail is fetched.
+        # Early in a month the report worth reading is the one that just closed, which
+        # is also the one the cadence alerted about on the 1st.
+        now = datetime.now(UTC)
+        wanted = now.replace(day=1) - timedelta(days=1) if now.day <= 7 else now
+        return services.insights_agent.monthly_report(services.context, wanted.year, wanted.month)
 
     if command in {"list", "queue"}:
         pending = services.queue.list(state=ApprovalState.PENDING_APPROVAL)
@@ -153,14 +202,13 @@ def _handle_owner_command(
             if command == "edit":
                 if len(words) < 3 or not words[2].strip():
                     return "To edit, send: EDIT <id> <new caption>."
-                services.state_machine.edit(draft.id, words[2].strip(), actor=owner)
-                return f"✏️ Updated [{draft.short_id}]. Reply APPROVE {draft.short_id} when ready."
+                return _edit_draft(services, draft, words[2].strip(), owner)
             services.state_machine.reject(draft.id, actor=owner, note="skipped via WhatsApp")
             return f"⏭ Skipped [{draft.short_id}]."
         except IllegalTransitionError:
             return f"[{draft.short_id}] is already {draft.state.value} — nothing to do."
 
-    return "Reply LIST to see drafts, or APPROVE/EDIT/SKIP <id>."
+    return "Reply LIST to see drafts, REPORT for your month, or APPROVE/EDIT/SKIP <id>."
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -186,6 +234,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if ctx is None:
             return {"reply": "This number isn't linked to a LocalPulse client."}
         services = container.services(session, ctx.client_id)
+        # the owner's own 24h window: it decides whether later alerts can be free-form
+        services.conversations.upsert_inbound(payload.from_number, "owner")
         reply = _handle_owner_command(services, container, clients, payload.text)
         try:
             # inbound message just opened the 24h service window -> free reply

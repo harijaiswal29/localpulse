@@ -6,15 +6,22 @@ escalated to the owner and never auto-send; every reply enters the approval queu
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 from localpulse.agents.common import check_text_guardrails
-from localpulse.context.models import ApprovalState, ClientContext, DraftItem, DraftKind
-from localpulse.context.repositories import ReviewRepository
+from localpulse.context.models import (
+    ApprovalState,
+    ClientContext,
+    DraftItem,
+    DraftKind,
+    TemplateSlot,
+)
+from localpulse.context.repositories import ConversationRepository, ReviewRepository
 from localpulse.llm.gateway import ModelGateway
 from localpulse.orchestrator.approval import ApprovalStateMachine
 from localpulse.orchestrator.cost_guard import CostGuard, MessagePurpose
-from localpulse.orchestrator.messaging import send_whatsapp
+from localpulse.orchestrator.messaging import notify_owner
+from localpulse.orchestrator.templates import TemplateRenderError, render
 from localpulse.orchestrator.tool_registry import ToolRegistry
 from localpulse.packs.base import VerticalPack, load_pack
 from localpulse.tools.gbp import Review
@@ -71,12 +78,14 @@ class ReputationAgent:
         state_machine: ApprovalStateMachine,
         cost_guard: CostGuard,
         reviews: ReviewRepository,
+        conversations: ConversationRepository,
     ):
         self._gateway = gateway
         self._registry = registry
         self._state_machine = state_machine
         self._cost_guard = cost_guard
         self._reviews = reviews
+        self._conversations = conversations
 
     def check_reviews(self, ctx: ClientContext) -> list[DraftItem]:
         """Pull reviews from GBP, draft a reply for each unseen one, notify the owner."""
@@ -113,25 +122,42 @@ class ReputationAgent:
         within_service_window: bool = False,
     ) -> DraftItem | None:
         """Draft a post-purchase 'leave us a review' WhatsApp nudge (A1 — owner
-        approves before anything is sent; the Cost Guard prices the send)."""
+        approves before anything is sent; the Cost Guard prices the send).
+
+        A nudge normally lands after the 24h window has closed, where WhatsApp
+        delivers approved templates only — so the wording is the pack's utility
+        template, not model output. Nothing is generated here: the same message
+        every time is exactly what Meta approved.
+        """
         pack = load_pack(ctx.vertical_pack_ref)
-        prompt = "\n".join(
-            [
-                f"business: {ctx.business.name}",
-                f"customer: {customer_name or 'there'}",
-                f"city: {ctx.business.city}",
-                "Write one short, friendly WhatsApp message thanking them for their "
-                "purchase and asking for a Google review. No pressure, no incentives "
-                "or discounts in exchange for reviews (against Google policy).",
-            ]
-        )
-        body = self._complete_with_guardrails(ctx, pack, prompt, self._nudge_system(ctx))
-        if body is None:
+        template = pack.message_template(TemplateSlot.REVIEW_NUDGE)
+        if template is None:
+            logger.warning(
+                "[reputation:%s] pack %r has no review-nudge template — cannot nudge",
+                ctx.client_id,
+                pack.ref,
+            )
+            return None
+        try:
+            rendered = render(
+                template,
+                {
+                    "business_name": ctx.business.name,
+                    "city": ctx.business.city,
+                    "customer_name": customer_name or "there",
+                },
+            )
+        except TemplateRenderError as exc:
+            logger.warning("[reputation:%s] nudge template not filled: %s", ctx.client_id, exc)
+            return None
+        reason = check_text_guardrails(rendered.body, pack)
+        if reason is not None:
+            logger.warning("[reputation:%s] nudge template rejected: %s", ctx.client_id, reason)
             return None
         draft = DraftItem(
             client_id=ctx.client_id,
             kind=DraftKind.REVIEW_NUDGE,
-            caption=body,
+            caption=rendered.body,
             language=ctx.brand_voice.languages[0],
             time_sensitive=False,
             state=ApprovalState.DRAFTED,
@@ -139,6 +165,8 @@ class ReputationAgent:
                 "customer_number": customer_number,
                 "customer_name": customer_name,
                 "within_service_window": within_service_window,
+                "template_slot": TemplateSlot.REVIEW_NUDGE.value,
+                "template": asdict(rendered),  # approved wording travels with the draft
             },
         )
         return self._state_machine.submit(draft, actor="reputation_agent")
@@ -212,12 +240,6 @@ class ReputationAgent:
             prompt += f"\nThe previous draft was rejected because: {reason}. Fix that."
         return None
 
-    def _nudge_system(self, ctx: ClientContext) -> str:
-        return (
-            f"You write short WhatsApp messages for {ctx.business.name} in "
-            f"{ctx.business.city}. Tone: {', '.join(ctx.brand_voice.tone) or 'warm'}."
-        )
-
     def _notify_owner(self, ctx: ClientContext, processed: list[ProcessedReview]) -> None:
         if not self._registry.is_connected(ctx.client_id, "whatsapp"):
             return
@@ -233,11 +255,13 @@ class ReputationAgent:
             else:
                 lines.append("I couldn't draft a safe reply — please respond to this one yourself.")
         lines.append("\nReply APPROVE <id>, EDIT <id> <new text>, or SKIP <id> for each.")
-        send_whatsapp(
+        notify_owner(
             guard=self._cost_guard,
             tool=self._registry.get(ctx.client_id, "whatsapp"),
-            to=ctx.business.owner_whatsapp,
+            ctx=ctx,
+            pack=load_pack(ctx.vertical_pack_ref),
             body="\n".join(lines),
             purpose=MessagePurpose.APPROVAL_REQUEST,
-            within_service_window=True,  # owner chat stays warm; BSP window state later
+            window_open=self._conversations.window_open(ctx.business.owner_whatsapp),
+            summary=f"{len(processed)} new review(s) to look at",
         )
