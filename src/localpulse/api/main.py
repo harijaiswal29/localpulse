@@ -88,6 +88,7 @@ def _approve_and_publish(services: ClientServices, container: Container, draft_i
         registry=container.registry,
         cost_guard=services.cost_guard,
         reviews=services.reviews,
+        deliveries=services.deliveries,
     )
 
 

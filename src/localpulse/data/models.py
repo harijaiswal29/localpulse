@@ -76,6 +76,28 @@ class PublishLogRecord(Base):
     published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class BroadcastDeliveryRecord(Base):
+    """One recipient of one broadcast, written the moment that send settles.
+
+    The publish log records a draft as a whole, which is too coarse for a
+    multi-recipient send: a batch that died halfway used to be re-sent in full,
+    charging the shop twice and messaging customers twice. This is the
+    per-recipient half of publish idempotency (spec §12.1).
+    """
+
+    __tablename__ = "broadcast_deliveries"
+    __table_args__ = (UniqueConstraint("client_id", "draft_id", "customer_number"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    client_id: Mapped[str] = mapped_column(String(64), index=True)
+    draft_id: Mapped[str] = mapped_column(String(64), index=True)
+    customer_number: Mapped[str] = mapped_column(String(32), index=True)
+    status: Mapped[str] = mapped_column(String(16))  # sent | failed
+    external_ref: Mapped[str] = mapped_column(String(255), default="")
+    detail: Mapped[str] = mapped_column(String(255), default="")  # why, when failed
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class MetricRecord(Base):
     __tablename__ = "metrics"
 

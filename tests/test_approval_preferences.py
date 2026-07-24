@@ -127,7 +127,7 @@ class TestBudgetSafety:
 
         services.cost_guard = CostGuard(CostLedgerRepository(session, "pilot-1"), 500.0)
         (action,) = publish_ready(services, container.registry)
-        assert action.external_ref == "wa-broadcast:1"
+        assert action.external_ref == "wa-broadcast:1/1"
 
 
 class TestWorkerDelivery:

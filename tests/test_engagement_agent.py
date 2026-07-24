@@ -9,6 +9,7 @@
 
 from datetime import UTC, datetime, timedelta
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -200,8 +201,9 @@ class TestWeeklyBroadcast:
             state_machine=services.state_machine,
             registry=container.registry,
             cost_guard=services.cost_guard,
+            deliveries=services.deliveries,
         )
-        assert action.external_ref == "wa-broadcast:2"
+        assert action.external_ref == "wa-broadcast:2/2"
         marketing = [m for m in whatsapp_tool(container).sent if m.category == "marketing"]
         assert {m.to for m in marketing} == {CUSTOMER, "+919900445566"}
         assert services.cost_guard.spend_this_month() == pytest.approx(2 * 0.86)
@@ -224,6 +226,7 @@ class TestWeeklyBroadcast:
                 state_machine=services.state_machine,
                 registry=container.registry,
                 cost_guard=broke_guard,
+                deliveries=services.deliveries,
             )
         # all-or-nothing: nothing sent, nothing published, draft safe to retry
         assert len(whatsapp_tool(container).sent) == sends_before
@@ -243,6 +246,7 @@ class TestWeeklyBroadcast:
             state_machine=services.state_machine,
             registry=container.registry,
             cost_guard=services.cost_guard,
+            deliveries=services.deliveries,
         )
         first = publish_draft(**kwargs)
         sends_after_first = len(whatsapp_tool(container).sent)
@@ -282,16 +286,9 @@ class TestBspAdapter:
     def test_cloud_api_send_posts_expected_payload(self, monkeypatch):
         captured = {}
 
-        class FakeResponse:
-            def raise_for_status(self):
-                pass
-
-            def json(self):
-                return {"messages": [{"id": "wamid.TEST123"}]}
-
         def fake_post(url, headers=None, json=None, timeout=None):
             captured.update(url=url, headers=headers, json=json)
-            return FakeResponse()
+            return httpx.Response(200, json={"messages": [{"id": "wamid.TEST123"}]})
 
         monkeypatch.setattr("localpulse.tools.whatsapp.httpx.post", fake_post)
         tool = CloudApiWhatsAppTool(client_id="pilot-1", api_key="k", phone_number_id="555")

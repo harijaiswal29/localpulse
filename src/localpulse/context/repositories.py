@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from localpulse.context.models import ApprovalState, ClientContext, DraftItem
 from localpulse.data.models import (
     ApprovalLogRecord,
+    BroadcastDeliveryRecord,
     ClientRecord,
     ConversationRecord,
     CostLedgerRecord,
@@ -178,6 +179,77 @@ class PublishLogRepository(_ScopedRepository):
                 DraftRecord.kind == kind
             )
         return int(self._session.scalar(stmt) or 0)
+
+
+class BroadcastDeliveryRepository(_ScopedRepository):
+    """Who has already received which broadcast.
+
+    Every row is committed as its send settles, so a publish that dies partway
+    through a batch leaves an accurate record behind and the retry resumes from
+    there instead of starting the batch over (spec §12.1).
+    """
+
+    def record_sent(self, draft_id: str, customer_number: str, external_ref: str) -> None:
+        self._record(draft_id, customer_number, "sent", external_ref=external_ref)
+
+    def record_failed(self, draft_id: str, customer_number: str, detail: str) -> None:
+        """A recipient this message will never reach — settled, so the batch moves on."""
+        self._record(draft_id, customer_number, "failed", detail=detail[:255])
+
+    def settled(self, draft_id: str) -> set[str]:
+        """Recipients already dealt with: delivered, or permanently undeliverable.
+        Every other recipient is still owed the message."""
+        stmt = select(BroadcastDeliveryRecord.customer_number).where(
+            BroadcastDeliveryRecord.client_id == self.client_id,
+            BroadcastDeliveryRecord.draft_id == draft_id,
+        )
+        return set(self._session.scalars(stmt))
+
+    def sent_count(self, draft_id: str) -> int:
+        stmt = select(func.count(BroadcastDeliveryRecord.id)).where(
+            BroadcastDeliveryRecord.client_id == self.client_id,
+            BroadcastDeliveryRecord.draft_id == draft_id,
+            BroadcastDeliveryRecord.status == "sent",
+        )
+        return int(self._session.scalar(stmt) or 0)
+
+    def for_draft(self, draft_id: str) -> list[BroadcastDeliveryRecord]:
+        stmt = (
+            select(BroadcastDeliveryRecord)
+            .where(
+                BroadcastDeliveryRecord.client_id == self.client_id,
+                BroadcastDeliveryRecord.draft_id == draft_id,
+            )
+            .order_by(BroadcastDeliveryRecord.at)
+        )
+        return list(self._session.scalars(stmt))
+
+    def _record(
+        self,
+        draft_id: str,
+        customer_number: str,
+        status: str,
+        external_ref: str = "",
+        detail: str = "",
+    ) -> None:
+        stmt = select(BroadcastDeliveryRecord).where(
+            BroadcastDeliveryRecord.client_id == self.client_id,
+            BroadcastDeliveryRecord.draft_id == draft_id,
+            BroadcastDeliveryRecord.customer_number == customer_number,
+        )
+        if self._session.scalars(stmt).first() is not None:
+            return  # already settled — never write a second row for one recipient
+        self._session.add(
+            BroadcastDeliveryRecord(
+                client_id=self.client_id,
+                draft_id=draft_id,
+                customer_number=customer_number,
+                status=status,
+                external_ref=external_ref,
+                detail=detail,
+            )
+        )
+        self._session.commit()
 
 
 class MetricsRepository(_ScopedRepository):

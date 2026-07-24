@@ -16,6 +16,7 @@ from localpulse.config import Settings, get_settings
 from localpulse.context.models import ClientContext
 from localpulse.context.repositories import (
     ApprovalLogRepository,
+    BroadcastDeliveryRepository,
     ClientRepository,
     ContentQueueRepository,
     ConversationRepository,
@@ -43,6 +44,7 @@ class ClientServices:
     queue: ContentQueueRepository
     approval_log: ApprovalLogRepository
     publish_log: PublishLogRepository
+    deliveries: BroadcastDeliveryRepository
     metrics: MetricsRepository
     reviews: ReviewRepository
     conversations: ConversationRepository
@@ -96,6 +98,7 @@ class Container:
         queue = ContentQueueRepository(session, client_id)
         approval_log = ApprovalLogRepository(session, client_id)
         publish_log = PublishLogRepository(session, client_id)
+        deliveries = BroadcastDeliveryRepository(session, client_id)
         metrics = MetricsRepository(session, client_id)
         reviews = ReviewRepository(session, client_id)
         conversations = ConversationRepository(session, client_id)
@@ -110,6 +113,7 @@ class Container:
             queue=queue,
             approval_log=approval_log,
             publish_log=publish_log,
+            deliveries=deliveries,
             metrics=metrics,
             reviews=reviews,
             conversations=conversations,

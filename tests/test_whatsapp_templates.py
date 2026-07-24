@@ -9,6 +9,7 @@ paid send resolves to one. These tests pin the rules that make that safe:
 - marketing needs consent the customer actually gave
 """
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
@@ -223,6 +224,7 @@ class TestBroadcast:
             state_machine=services.state_machine,
             registry=container.registry,
             cost_guard=services.cost_guard,
+            deliveries=services.deliveries,
         )
         marketing = [m for m in whatsapp(container).sent if m.category == "marketing"]
         assert {m.to for m in marketing} == {CUSTOMER, "+919900445566"}
@@ -336,16 +338,9 @@ class TestExplicitConsent:
 
 class TestCloudApiTransport:
     def fake_post(self, monkeypatch, captured):
-        class FakeResponse:
-            def raise_for_status(self):
-                pass
-
-            def json(self):
-                return {"messages": [{"id": "wamid.TEST123"}]}
-
         def post(url, headers=None, json=None, timeout=None):
             captured.update(url=url, json=json)
-            return FakeResponse()
+            return httpx.Response(200, json={"messages": [{"id": "wamid.TEST123"}]})
 
         monkeypatch.setattr("localpulse.tools.whatsapp.httpx.post", post)
 
@@ -419,5 +414,5 @@ class TestWorkerDelivery:
         draft = services.engagement_agent.draft_weekly_broadcast(pilot_context)
         assert draft.state == ApprovalState.APPROVED
         (action,) = publish_ready(services, container.registry)
-        assert action.external_ref == "wa-broadcast:1"
+        assert action.external_ref == "wa-broadcast:1/1"
         assert sent_to(container, CUSTOMER)[-1].template == "bakery_weekly_offer_v1"

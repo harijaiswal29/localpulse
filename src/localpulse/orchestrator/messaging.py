@@ -35,6 +35,10 @@ def send_whatsapp(
     that is what goes out — even when a template was rendered for it. Outside the
     window WhatsApp delivers approved templates only, so a paid send without one is
     refused here rather than failing at the BSP.
+
+    The budget is authorised before the send and charged after it, so the ledger
+    counts messages that actually left — a send the transport rejects costs the
+    shop nothing.
     """
     category = cheapest_valid_category(purpose, within_service_window)
     text = template.body if template is not None else body
@@ -44,8 +48,10 @@ def send_whatsapp(
         template = None  # same words, no template fee
     elif template is None:
         raise TemplateRequiredError(category, purpose.value)
-    guard.charge(category, note=purpose.value)  # raises BudgetExceededError before sending
-    return tool.send(to=to, body=text, category=category.value, template=template)
+    guard.ensure_affordable(category)  # raises BudgetExceededError before sending
+    external_ref = tool.send(to=to, body=text, category=category.value, template=template)
+    guard.charge(category, note=purpose.value)
+    return external_ref
 
 
 def notify_owner(

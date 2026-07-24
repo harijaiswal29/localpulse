@@ -59,6 +59,11 @@ The full slice runs for two verticals — **bakery** (Family 1, products) and
 - **Explicit marketing consent** (P3) — customers join the broadcast audience only by
   replying `START`, recorded with its basis and timestamp; the pack asks once, on a
   first contact, inside the free window; `STOP` always wins
+- **Resumable delivery** (P3) — temporary tool failures (429, 5xx, dropped connection)
+  are retried with exponential backoff while a permanently rejected message fails fast;
+  every broadcast send is recorded per recipient, so a batch that dies halfway resumes
+  on the next attempt instead of re-sending — nobody is messaged, or charged for,
+  twice
 
 Next up: multi-tenant scale-out and GBP API onboarding (see spec §14–15).
 
@@ -130,10 +135,11 @@ curl -X PUT localhost:8000/clients/pilot-1/approval-preferences \
 ## Quality
 
 ```bash
-pytest                        # 145 tests: state machine, cost guard, packs, tenant
+pytest                        # 170 tests: state machine, cost guard, packs, tenant
                               # isolation, content eval, reputation, engagement,
                               # salon pack, worker hardening, approval prefs,
-                              # WhatsApp templates + consent, e2e
+                              # WhatsApp templates + consent, retry/partial
+                              # delivery, e2e
 ruff check . && ruff format .
 ```
 

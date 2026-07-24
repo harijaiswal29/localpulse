@@ -14,6 +14,7 @@ from localpulse.context.models import (
     PublishedAction,
 )
 from localpulse.context.repositories import (
+    BroadcastDeliveryRepository,
     ContentQueueRepository,
     PublishLogRepository,
     ReviewRepository,
@@ -27,7 +28,8 @@ from localpulse.orchestrator.cost_guard import (
 )
 from localpulse.orchestrator.messaging import send_whatsapp
 from localpulse.orchestrator.tool_registry import ToolRegistry
-from localpulse.tools.whatsapp import OutboundTemplate
+from localpulse.tools.retry import PermanentToolError, TransientToolError
+from localpulse.tools.whatsapp import OutboundTemplate, WhatsAppTool
 
 if TYPE_CHECKING:
     from localpulse.container import ClientServices
@@ -38,8 +40,8 @@ logger = logging.getLogger(__name__)
 def publish_ready(services: ClientServices, registry: ToolRegistry) -> list[PublishedAction]:
     """Publish every draft sitting in APPROVED — the delivery leg for drafts the
     owner's standing preference auto-approved (A0) and the retry path for drafts
-    whose earlier publish was budget-blocked. Idempotent; a budget block leaves
-    the draft approved and retryable, everything else keeps going."""
+    an earlier attempt could not finish. Idempotent; a budget block or a failing
+    transport leaves the draft approved and retryable, everything else keeps going."""
     actions: list[PublishedAction] = []
     for draft in services.queue.list(state=ApprovalState.APPROVED):
         try:
@@ -53,6 +55,7 @@ def publish_ready(services: ClientServices, registry: ToolRegistry) -> list[Publ
                     registry=registry,
                     cost_guard=services.cost_guard,
                     reviews=services.reviews,
+                    deliveries=services.deliveries,
                 )
             )
         except BudgetExceededError:
@@ -60,6 +63,25 @@ def publish_ready(services: ClientServices, registry: ToolRegistry) -> list[Publ
                 "[publish:%s] draft %s blocked by budget — stays approved for retry",
                 draft.client_id,
                 draft.short_id,
+            )
+        except PartialDeliveryError as exc:
+            logger.warning(
+                "[publish:%s] broadcast %s delivered %d, %d still owed — stays approved, "
+                "the next attempt resumes from there",
+                draft.client_id,
+                draft.short_id,
+                exc.delivered,
+                exc.remaining,
+            )
+        except TransientToolError as exc:
+            # Retries inside the tool are already exhausted; the cadence tick is
+            # the next, slower retry. Nothing was published, so nothing is lost.
+            logger.warning(
+                "[publish:%s] draft %s failed on a transient tool error (%s) — "
+                "stays approved for retry",
+                draft.client_id,
+                draft.short_id,
+                exc,
             )
     return actions
 
@@ -78,6 +100,90 @@ class NotApprovedError(Exception):
         )
 
 
+class PartialDeliveryError(Exception):
+    """A multi-recipient send stopped partway. What went out is recorded per
+    recipient, so the draft stays approved and the next attempt owes only the rest."""
+
+    def __init__(self, draft: DraftItem, delivered: int, remaining: int):
+        self.draft_id = draft.id
+        self.delivered = delivered
+        self.remaining = remaining
+        super().__init__(
+            f"broadcast {draft.short_id}: delivered {delivered}, {remaining} still owed"
+        )
+
+
+def _publish_broadcast(
+    draft: DraftItem,
+    recipients: list[str],
+    whatsapp: WhatsAppTool,
+    cost_guard: CostGuard,
+    deliveries: BroadcastDeliveryRepository,
+) -> str:
+    """Send a broadcast, at most once per recipient.
+
+    The publish log only records a draft as a whole, so a batch that died on
+    recipient 7 of 20 was re-sent in full on the next attempt: the first six
+    customers got the message twice and the shop paid for it twice. Each send is
+    now recorded against its recipient as it settles, so a retry resumes.
+
+    A recipient the platform permanently rejects is settled as failed and the
+    batch carries on — partial delivery beats a batch that can never finish
+    (graceful degradation, spec §12.1). A transient failure stops the run: if the
+    transport is unhealthy, further sends would only burn budget to fail too.
+    """
+    settled = deliveries.settled(draft.id)
+    pending = [number for number in recipients if number not in settled]
+    if pending:
+        # All-or-nothing on budget — but only over what is actually still owed.
+        cost_guard.ensure_affordable(MessageCategory.MARKETING, len(pending))
+    template = _approved_template(draft)
+
+    for number in pending:
+        try:
+            external_ref = send_whatsapp(
+                guard=cost_guard,
+                tool=whatsapp,
+                to=number,
+                body=draft.caption,
+                purpose=MessagePurpose.MARKETING_BROADCAST,
+                within_service_window=False,
+                template=template,
+            )
+        except PermanentToolError as exc:
+            logger.error(
+                "[publish:%s] broadcast %s: dropping %s — %s",
+                draft.client_id,
+                draft.short_id,
+                number,
+                exc,
+            )
+            deliveries.record_failed(draft.id, number, str(exc))
+            continue
+        except TransientToolError as exc:
+            logger.warning(
+                "[publish:%s] broadcast %s: stopping at %s — %s",
+                draft.client_id,
+                draft.short_id,
+                number,
+                exc,
+            )
+            break
+        deliveries.record_sent(draft.id, number, external_ref)
+
+    outstanding = [number for number in recipients if number not in deliveries.settled(draft.id)]
+    sent = deliveries.sent_count(draft.id)
+    if outstanding:
+        raise PartialDeliveryError(draft, delivered=sent, remaining=len(outstanding))
+    if sent == 0:
+        logger.error(
+            "[publish:%s] broadcast %s reached nobody — every recipient was rejected",
+            draft.client_id,
+            draft.short_id,
+        )
+    return f"wa-broadcast:{sent}/{len(recipients)}"
+
+
 def publish_draft(
     draft_id: str,
     approval_log_id: int,
@@ -87,6 +193,7 @@ def publish_draft(
     registry: ToolRegistry,
     cost_guard: CostGuard | None = None,
     reviews: ReviewRepository | None = None,
+    deliveries: BroadcastDeliveryRepository | None = None,
 ) -> PublishedAction:
     draft = queue.get(draft_id)
 
@@ -130,25 +237,18 @@ def publish_draft(
     elif draft.kind == DraftKind.WHATSAPP_BROADCAST:
         if cost_guard is None:
             raise ValueError("publishing a broadcast requires the cost guard")
+        if deliveries is None:
+            raise ValueError("publishing a broadcast requires the delivery ledger")
         recipients = [str(number) for number in draft.meta.get("recipients", [])]
         if not recipients:
             raise ValueError("broadcast draft has no recipients")
-        # All-or-nothing: verify the whole batch fits the budget before the first
-        # send; a BudgetExceededError leaves the draft approved and retryable.
-        cost_guard.ensure_affordable(MessageCategory.MARKETING, len(recipients))
-        whatsapp = registry.get(draft.client_id, "whatsapp")
-        template = _approved_template(draft)
-        for number in recipients:
-            send_whatsapp(
-                guard=cost_guard,
-                tool=whatsapp,
-                to=number,
-                body=draft.caption,
-                purpose=MessagePurpose.MARKETING_BROADCAST,
-                within_service_window=False,
-                template=template,
-            )
-        external_ref = f"wa-broadcast:{len(recipients)}"
+        external_ref = _publish_broadcast(
+            draft=draft,
+            recipients=recipients,
+            whatsapp=registry.get(draft.client_id, "whatsapp"),
+            cost_guard=cost_guard,
+            deliveries=deliveries,
+        )
         channel = Channel.WHATSAPP
     else:
         gbp = registry.get(draft.client_id, "gbp")

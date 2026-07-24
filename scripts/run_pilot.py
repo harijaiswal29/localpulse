@@ -145,6 +145,7 @@ def main() -> None:
                 state_machine=services.state_machine,
                 registry=container.registry,
                 cost_guard=services.cost_guard,
+                deliveries=services.deliveries,
             )
             print(
                 f"  Published as {action.external_ref}; "

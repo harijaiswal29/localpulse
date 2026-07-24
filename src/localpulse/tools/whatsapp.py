@@ -11,6 +11,14 @@ from typing import Protocol
 
 import httpx
 
+from localpulse.tools.retry import (
+    DEFAULT_POLICY,
+    RetryPolicy,
+    call_with_retry,
+    raise_for_response,
+    transient_from,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -73,23 +81,44 @@ class CloudApiWhatsAppTool:
     api_key: str
     phone_number_id: str
     base_url: str = "https://graph.facebook.com/v20.0"
+    retry: RetryPolicy = DEFAULT_POLICY
 
     def send(
         self, to: str, body: str, category: str, template: OutboundTemplate | None = None
     ) -> str:
+        """Deliver one message, retrying a rate-limited or failing API (spec §12.1).
+
+        A retry here re-sends the same message, so it must only ever happen when
+        the previous attempt did *not* deliver: `raise_for_response` retries the
+        statuses Meta uses for "not accepted, try again" and treats everything
+        else as permanent.
+        """
         payload = {
             "messaging_product": "whatsapp",
             "recipient_type": "individual",
             "to": to,
         }
         payload.update(self._text(body) if template is None else self._template(template))
-        response = httpx.post(
-            f"{self.base_url}/{self.phone_number_id}/messages",
-            headers={"Authorization": f"Bearer {self.api_key}"},
-            json=payload,
-            timeout=30,
+        return call_with_retry(
+            f"whatsapp.send -> {to}",
+            lambda: self._post(payload, to, category, template),
+            policy=self.retry,
         )
-        response.raise_for_status()
+
+    def _post(
+        self, payload: dict, to: str, category: str, template: OutboundTemplate | None
+    ) -> str:
+        operation = "whatsapp.send"
+        try:
+            response = httpx.post(
+                f"{self.base_url}/{self.phone_number_id}/messages",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                json=payload,
+                timeout=30,
+            )
+        except httpx.RequestError as exc:
+            raise transient_from(exc, operation) from exc
+        raise_for_response(response, operation)
         message_id = response.json()["messages"][0]["id"]
         logger.info(
             "[whatsapp:%s] -> %s (%s%s) via cloud api: %s",
