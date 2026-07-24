@@ -58,12 +58,14 @@ class ClientServices:
 
 
 class Container:
-    def __init__(self, settings: Settings | None = None):
+    def __init__(self, settings: Settings | None = None, gateway: ModelGateway | None = None):
         self.settings = settings or get_settings()
         self.engine = make_engine(self.settings.database_url)
         init_db(self.engine)
         self.session_factory = make_session_factory(self.engine)
-        self.gateway = ModelGateway.from_settings(self.settings)
+        # A caller may supply a gateway with extra providers registered (the eval
+        # harness does); otherwise it is built from config like everything else.
+        self.gateway = gateway or ModelGateway.from_settings(self.settings)
         self.registry = ToolRegistry()
 
     def session(self) -> Session:

@@ -64,6 +64,12 @@ The full slice runs for two verticals — **bakery** (Family 1, products) and
   every broadcast send is recorded per recipient, so a batch that dies halfway resumes
   on the next attempt instead of re-sending — nobody is messaged, or charged for,
   twice
+- **Eval harness** (P3) — the gate for changing a model or a prompt: a golden dataset
+  runs the real agents through the real engine and scores what reaches the owner for
+  grounding (no invented items or prices), language (Marathi/Hindi/English), guardrail
+  compliance, brand register, coverage, and containment of a deliberately misbehaving
+  model. Deterministic — no judge model — and it exits non-zero, so a bad swap stops a
+  release instead of reaching a shop's profile ([runbook](docs/evals.md))
 
 Next up: multi-tenant scale-out and GBP API onboarding (see spec §14–15).
 
@@ -135,13 +141,23 @@ curl -X PUT localhost:8000/clients/pilot-1/approval-preferences \
 ## Quality
 
 ```bash
-pytest                        # 170 tests: state machine, cost guard, packs, tenant
+pytest                        # 216 tests: state machine, cost guard, packs, tenant
                               # isolation, content eval, reputation, engagement,
                               # salon pack, worker hardening, approval prefs,
                               # WhatsApp templates + consent, retry/partial
-                              # delivery, e2e
+                              # delivery, eval harness, e2e
 ruff check . && ruff format .
+
+python scripts/run_evals.py                            # score the configured models
+python scripts/run_evals.py --model claude-sonnet-4-5  # score a candidate before swapping
+python scripts/run_evals.py --suite core               # offline smoke run
 ```
+
+The eval harness is the gate for a model or prompt change: `0` pass, `1` below the
+bar, `2` passed but regressed against a `--baseline`. Suites are `core` (English —
+every provider must clear it), `multilingual` (Marathi/Hindi — the offline mock
+fails it by design) and `redteam` (a model misbehaving on purpose; scored on whether
+the engine contained it). See [`docs/evals.md`](docs/evals.md).
 
 ## Repo map
 
@@ -154,6 +170,7 @@ src/localpulse/
 ├── packs/          # vertical packs — ALL vertical logic lives here (bakery/, salon/)
 ├── context/        # Client Context pydantic models + client_id-scoped repositories
 ├── data/           # SQLAlchemy models — every table carries client_id
+├── evals/          # agent eval harness — golden dataset, scorers, pass bar
 └── api/            # FastAPI: WhatsApp inbound webhook + approval endpoints
 ```
 

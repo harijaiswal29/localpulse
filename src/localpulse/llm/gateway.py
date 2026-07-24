@@ -94,9 +94,18 @@ class AnthropicProvider:
 
 
 class ModelGateway:
-    def __init__(self, model_map: dict[str, str], anthropic_api_key: str = ""):
+    def __init__(
+        self,
+        model_map: dict[str, str],
+        anthropic_api_key: str = "",
+        providers: dict[str, ModelProvider] | None = None,
+    ):
         self._model_map = model_map
         self._anthropic_api_key = anthropic_api_key
+        # Providers registered by name, consulted before the built-in resolution.
+        # This is how a model id that has no vendor behind it — an eval fixture, a
+        # local Ollama build — becomes runnable config rather than a code change.
+        self._providers = dict(providers or {})
 
     @classmethod
     def from_settings(cls, settings: Settings) -> ModelGateway:
@@ -111,6 +120,9 @@ class ModelGateway:
         return self._provider_for(self.model_for(task_profile)).complete(prompt, system, max_tokens)
 
     def _provider_for(self, model: str) -> ModelProvider:
+        registered = self._providers.get(model)
+        if registered is not None:
+            return registered
         if model == "mock" or not model:
             return MockProvider()
         if model.startswith("claude") and self._anthropic_api_key:

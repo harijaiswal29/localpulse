@@ -72,6 +72,43 @@ def test_guardrails_reject_banned_terms_and_ungrounded_captions(pilot_context):
     assert check_guardrails("x" * 601 + f" {offering.name}", slot, pack) == "caption too long"
 
 
+def test_guardrails_reject_health_claims_the_pack_forbids(pilot_context):
+    """`forbid_health_claims` is a pack flag, so the engine has to honour it — a
+    claim phrase gets past a banned-term list every time."""
+    pack = load_pack("bakery")
+    template = next(t for t in pack.templates if t.requires_offering)
+    offering = pilot_context.offerings[0]
+    slot = Slot(WEEK_START, template, offering, None)
+
+    for claim in [
+        f"{offering.name} — clinically proven to boost immunity!",
+        f"{offering.name}: no side effects, 100% safe.",
+        f"Our {offering.name} heals a bad day.",
+    ]:
+        reason = check_guardrails(claim, slot, pack)
+        assert reason is not None and reason.startswith("health claim"), claim
+
+    # "weight loss" is also on the bakery pack's banned-term list — either gate
+    # rejecting it is fine, what matters is that neither lets it through.
+    assert check_guardrails(f"Our {offering.name} helps with weight loss.", slot, pack)
+
+
+def test_ordinary_bakery_wording_is_not_mistaken_for_a_health_claim(pilot_context):
+    """A false positive here silently drops the shop's post, so normal trade
+    language must survive."""
+    pack = load_pack("bakery")
+    template = next(t for t in pack.templates if t.requires_offering)
+    offering = pilot_context.offerings[0]
+    slot = Slot(WEEK_START, template, offering, None)
+
+    for innocent in [
+        f"Treat yourself to a fresh {offering.name} this morning.",
+        f"A healthy start to the day with our {offering.name}.",
+        f"{offering.name} — baked fresh, every single day.",
+    ]:
+        assert check_guardrails(innocent, slot, pack) is None, innocent
+
+
 def test_plan_week_fails_closed_without_offerings(pilot_context):
     pack = load_pack("bakery")
     bare = pilot_context.model_copy(deep=True)

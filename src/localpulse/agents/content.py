@@ -11,6 +11,7 @@ from datetime import UTC, date, datetime, time, timedelta
 
 from pydantic import BaseModel
 
+from localpulse.agents.common import check_text_guardrails
 from localpulse.context.models import (
     ApprovalState,
     CalendarEvent,
@@ -92,14 +93,10 @@ def plan_week(pack: VerticalPack, ctx: ClientContext, week_start: date) -> list[
 
 def check_guardrails(caption: str, slot: Slot, pack: VerticalPack) -> str | None:
     """Return a rejection reason, or None if the caption is safe to show the owner."""
-    if not caption.strip():
-        return "empty caption"
-    if len(caption) > pack.guardrails.max_caption_chars:
-        return "caption too long"
+    reason = check_text_guardrails(caption, pack, noun="caption")
+    if reason is not None:
+        return reason
     lowered = caption.lower()
-    for term in pack.guardrails.banned_terms:
-        if term.lower() in lowered:
-            return f"banned term: {term}"
     if (
         pack.guardrails.require_offering_grounding
         and slot.template.requires_offering

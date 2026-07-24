@@ -18,7 +18,7 @@ An AI system that keeps a local business's online presence — Google Business P
 4. **Cost-aware by default.** All outbound messaging routes through the Cost Guard. Prefer free WhatsApp *service-window* replies; never send a marketing template where a service reply works.
 5. **Negatives and low-confidence actions escalate (A2)** to the owner — never auto-send.
 6. **Agents are stateless.** They read/write only via Client Context repositories.
-7. **Model-agnostic.** Agents call the **model gateway**, never a vendor SDK directly. Which model runs an agent is config, not code — swappable per agent and per environment, gated by evals.
+7. **Model-agnostic.** Agents call the **model gateway**, never a vendor SDK directly. Which model runs an agent is config, not code — swappable per agent and per environment, gated by evals — `python scripts/run_evals.py --model <candidate>` must clear the bar before the swap (`docs/evals.md`).
 
 ---
 
@@ -47,6 +47,7 @@ localpulse/
 │   ├── packs/           # vertical packs — bakery/, salon/, ...  (ALL vertical logic here)
 │   ├── context/         # Client Context pydantic models + repositories
 │   ├── data/            # db models, migrations, vector store access
+│   ├── evals/           # agent eval harness — golden dataset, scorers, runner
 │   └── api/             # FastAPI app: WhatsApp inbound webhook, approval endpoints
 ├── tests/
 └── scripts/
@@ -75,6 +76,8 @@ python -m localpulse.orchestrator.worker     # scheduler / agent runs
 # quality
 pytest
 ruff check . && ruff format .
+python scripts/run_evals.py                   # agent eval harness — gates a model/prompt change
+python scripts/run_evals.py --model <candidate>   # score a candidate model before swapping
 ```
 
 ---
@@ -148,11 +151,17 @@ Grow beyond the single pilot.
 
 **Delivery reliability — resumable broadcasts + retry/backoff: done** (2026-07-24). Transient tool failures are now separated from permanent ones (`tools/retry.py`): a 429/408/5xx or a dropped connection is retried with jittered exponential backoff (3 attempts, honouring `Retry-After`), while a 4xx Meta will never accept fails immediately instead of re-sending. `CloudApiWhatsAppTool` classifies its own responses rather than calling `raise_for_status`. The publish log records a draft as a whole, which was too coarse for a broadcast: a batch that died on recipient 7 of 20 was re-sent in full, so the first six customers got the offer twice and the shop paid twice. Every send is now recorded per recipient in `broadcast_deliveries` as it settles, so a retry resumes — a permanently rejected number is settled as failed and the batch carries on (`wa-broadcast:<sent>/<total>`), a transient failure stops the run and leaves the draft APPROVED for the next cadence tick (`PartialDeliveryError`), and the budget precheck covers only what is still owed. `send_whatsapp` now authorises the budget before the send and charges after it, so the ledger counts messages that actually left.
 
+**Eval harness: done** (2026-07-24). `src/localpulse/evals/` + `python scripts/run_evals.py` — the gate for any prompt or model change (spec §12.2/§13.1); runbook in `docs/evals.md`. A golden dataset of `ClientContext → expected content characteristics` runs the **real** agents through the **real** engine and scores what reaches the owner on six deterministic dimensions (`grounding`, `language`, `guardrails`, `brand_voice`, `coverage`, `containment`) — no judge model, so a swap gate never begs the question. Three suites: **core** (English, must pass on any provider incl. the mock), **multilingual** (Marathi/Hindi — the mock fails it by design, asserted in tests so it's never mistaken for shippable), **redteam** (a rigged provider tries banned terms/health claims/ungrounded/oversized copy; scored on whether the *engine* contained it). Exit codes gate a release: `0` pass / `1` below bar / `2` regressed against `--baseline`. `coverage` is a first-class dimension because a model can fail without writing a bad caption — if the engine rejects everything it writes, the shop's week is empty. Model injection is config, not code: `ModelGateway(providers={...})` registers a named provider and `Container(settings, gateway=...)` accepts it.
+
+**Guardrail fix found by the harness** (2026-07-24): `Guardrails.forbid_health_claims` was declared `True` by both packs and enforced *nowhere* — "clinically proven to boost immunity" passed the banned-term list and reached the approval queue (red-team case `rt_health_claim`). `agents/common.py` now carries generic `HEALTH_CLAIM_PATTERNS` (phrases, not words, so "treat yourself"/"healthy breakfast" never trip it) applied only when a pack opts in; `content.check_guardrails` delegates to `check_text_guardrails` instead of duplicating it. The eval keeps its **own** claim list on purpose — an eval that imports the engine's checks can only ever agree with it.
+
 **Remaining P3 items:** GBP API integration once access is granted.
 
 **Carry-over open items:** apply for GBP API access — runbook with pre-drafted form answers in `docs/gbp-api-access.md` (blocking prerequisite: the applicant email must be a manager on a verified GBP active 60+ days, so arrange pilot-profile access first); submit the WhatsApp templates once the WABA exists (`docs/whatsapp-templates.md` — that review runs in parallel with the GBP wait); confirm the approximate 2026 festival dates in `context/regional_calendar.py` before real pilots. Note there are still no migrations (`create_all` only, spec/P0 decision) — the conversations table gained consent columns and `broadcast_deliveries` is a new table, so an existing dev `localpulse.db` must be recreated.
 
-**Known gaps against the spec** (audited 2026-07-24, none blocking a hand-held pilot): no eval harness (§12.2) — every test runs on the mock provider, so no model swap is gated by anything; no dead-letter queue, per-tool circuit breaker, or credential-expiry detection (§12.1); a publish failure is logged and retried but never reaches the owner ("couldn't post — retry?"); evergreen approval items never re-notify; `ApprovalPreferences.quiet_hours` is defined but enforced nowhere; brand voice `example_posts` is captured at onboarding and never read (no vector store — §8/§13); broadcast engagement and approval turnaround aren't tracked (§10); `MockWebSearchTool` is a stub nothing calls; spec §14's P3 also lists self-serve onboarding and an owner dashboard, both unbuilt.
+**Known gaps against the spec** (audited 2026-07-24, none blocking a hand-held pilot): no dead-letter queue, per-tool circuit breaker, or credential-expiry detection (§12.1); a publish failure is logged and retried but never reaches the owner ("couldn't post — retry?"); evergreen approval items never re-notify; `ApprovalPreferences.quiet_hours` is defined but enforced nowhere; brand voice `example_posts` is captured at onboarding and never read (no vector store — §8/§13); broadcast engagement and approval turnaround aren't tracked (§10); `MockWebSearchTool` is a stub nothing calls; spec §14's P3 also lists self-serve onboarding and an owner dashboard, both unbuilt.
+
+**Known limits of the eval harness** (`docs/evals.md` has the full version): semantic tone isn't scored — `brand_voice` measures register (hype, shouting, speaking as the shop), not whether a caption *feels* homely; and **inventing is caught at swap time or not at all** — the engine's grounding check asks that the intended offering is named, never that nothing else was added, so "Chocolate truffle cake ₹550 and fresh butter croissants" clears every runtime check. That's the argument against `AUTO ON gbp_post` for a model that hasn't cleared the grounding dimension. Non-English grounding is also weak: offering names are stored in English and matched as substrings, so a good Marathi caption that transliterates the item name gets rejected by the engine (surfacing as `coverage`, not `language`) — fix before any Marathi-first pilot.
 
 ---
 
