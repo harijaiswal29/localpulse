@@ -91,9 +91,11 @@ def plan_week(pack: VerticalPack, ctx: ClientContext, week_start: date) -> list[
     return slots
 
 
-def check_guardrails(caption: str, slot: Slot, pack: VerticalPack) -> str | None:
+def check_guardrails(
+    caption: str, slot: Slot, pack: VerticalPack, ctx: ClientContext
+) -> str | None:
     """Return a rejection reason, or None if the caption is safe to show the owner."""
-    reason = check_text_guardrails(caption, pack, noun="caption")
+    reason = check_text_guardrails(caption, pack, ctx, noun="caption")
     if reason is not None:
         return reason
     lowered = caption.lower()
@@ -152,7 +154,7 @@ class ContentAgent:
         prompt = self._prompt_for(ctx, pack, slot)
         for attempt in range(2):
             caption = self._gateway.complete(self.task_profile, prompt, system=system).strip()
-            reason = check_guardrails(caption, slot, pack)
+            reason = check_guardrails(caption, slot, pack, ctx)
             if reason is None:
                 return caption
             logger.info(
@@ -169,7 +171,9 @@ class ContentAgent:
             f"date: {slot.post_date.isoformat()}",
         ]
         if slot.offering is not None:
-            price = f" (₹{slot.offering.price_inr:.0f})" if slot.offering.price_inr else ""
+            # :g not :.0f — showing the model ₹100 for a ₹99.50 item invites it to
+            # write a price the shop does not charge, which the check then rejects.
+            price = f" (₹{slot.offering.price_inr:g})" if slot.offering.price_inr else ""
             lines.append(f"offering: {slot.offering.name}{price}")
         if slot.event is not None:
             lines.append(f"occasion: {slot.event.name}")

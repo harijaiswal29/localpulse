@@ -88,6 +88,10 @@ class Guardrails(BaseModel):
     forbid_health_claims: bool = False
     max_caption_chars: int = 700
     require_offering_grounding: bool = True
+    # Every rupee amount in generated copy must be one the shop actually charges.
+    # Defaults True — this is a generic engine concern, not a vertical preference,
+    # so a new pack inherits it without having to know it exists.
+    require_price_grounding: bool = True
 
 
 class VerticalPack(BaseModel):

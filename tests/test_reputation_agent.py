@@ -57,22 +57,31 @@ class TestClassification:
 
 
 class TestReplyGuardrails:
-    def test_banned_term_rejected(self):
+    def test_banned_term_rejected(self, pilot_context):
         pack = load_pack("bakery")
-        assert check_reply_guardrails("Our cakes cure sadness!", pack) is not None
+        assert check_reply_guardrails("Our cakes cure sadness!", pack, pilot_context) is not None
 
-    def test_empty_rejected(self):
+    def test_empty_rejected(self, pilot_context):
         pack = load_pack("bakery")
-        assert check_reply_guardrails("   ", pack) == "empty text"
+        assert check_reply_guardrails("   ", pack, pilot_context) == "empty text"
 
-    def test_too_long_rejected(self):
+    def test_too_long_rejected(self, pilot_context):
         pack = load_pack("bakery")
-        reason = check_reply_guardrails("x" * (pack.guardrails.max_caption_chars + 1), pack)
-        assert reason == "text too long"
+        long_reply = "x" * (pack.guardrails.max_caption_chars + 1)
+        assert check_reply_guardrails(long_reply, pack, pilot_context) == "text too long"
 
-    def test_clean_reply_passes(self):
+    def test_clean_reply_passes(self, pilot_context):
         pack = load_pack("bakery")
-        assert check_reply_guardrails("Thank you so much, see you soon!", pack) is None
+        assert (
+            check_reply_guardrails("Thank you so much, see you soon!", pack, pilot_context) is None
+        )
+
+    def test_reply_quoting_a_price_the_shop_does_not_charge_is_rejected(self, pilot_context):
+        """A review reply is public and permanent. A model apologising with an
+        invented refund figure is the worst version of this."""
+        pack = load_pack("bakery")
+        reason = check_reply_guardrails("Sorry! Your next cake is ₹99.", pack, pilot_context)
+        assert reason is not None and "does not charge" in reason
 
 
 class TestCheckReviews:

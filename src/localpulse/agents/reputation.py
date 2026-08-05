@@ -63,9 +63,9 @@ def classify_review(review: Review) -> str:
     return "positive"
 
 
-def check_reply_guardrails(reply: str, pack: VerticalPack) -> str | None:
+def check_reply_guardrails(reply: str, pack: VerticalPack, ctx: ClientContext) -> str | None:
     """Return a rejection reason, or None if the reply is safe to show the owner."""
-    return check_text_guardrails(reply, pack)
+    return check_text_guardrails(reply, pack, ctx)
 
 
 class ReputationAgent:
@@ -150,7 +150,7 @@ class ReputationAgent:
         except TemplateRenderError as exc:
             logger.warning("[reputation:%s] nudge template not filled: %s", ctx.client_id, exc)
             return None
-        reason = check_text_guardrails(rendered.body, pack)
+        reason = check_text_guardrails(rendered.body, pack, ctx)
         if reason is not None:
             logger.warning("[reputation:%s] nudge template rejected: %s", ctx.client_id, reason)
             return None
@@ -228,7 +228,7 @@ class ReputationAgent:
     ) -> str | None:
         for attempt in range(2):
             body = self._gateway.complete(self.task_profile, prompt, system=system).strip()
-            reason = check_reply_guardrails(body, pack)
+            reason = check_reply_guardrails(body, pack, ctx)
             if reason is None:
                 return body
             logger.info(

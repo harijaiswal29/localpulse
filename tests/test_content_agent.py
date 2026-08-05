@@ -65,11 +65,16 @@ def test_guardrails_reject_banned_terms_and_ungrounded_captions(pilot_context):
     offering = pilot_context.offerings[0]
     slot = Slot(WEEK_START, template, offering, None)
 
-    assert check_guardrails("", slot, pack) == "empty caption"
-    assert "banned term" in check_guardrails(f"{offering.name} cures all ills!", slot, pack)
-    assert check_guardrails("Try our amazing mystery cake!", slot, pack) is not None
-    assert check_guardrails(f"Fresh {offering.name} today!", slot, pack) is None
-    assert check_guardrails("x" * 601 + f" {offering.name}", slot, pack) == "caption too long"
+    assert check_guardrails("", slot, pack, pilot_context) == "empty caption"
+    assert "banned term" in check_guardrails(
+        f"{offering.name} cures all ills!", slot, pack, pilot_context
+    )
+    assert check_guardrails("Try our amazing mystery cake!", slot, pack, pilot_context) is not None
+    assert check_guardrails(f"Fresh {offering.name} today!", slot, pack, pilot_context) is None
+    assert (
+        check_guardrails("x" * 601 + f" {offering.name}", slot, pack, pilot_context)
+        == "caption too long"
+    )
 
 
 def test_guardrails_reject_health_claims_the_pack_forbids(pilot_context):
@@ -85,12 +90,14 @@ def test_guardrails_reject_health_claims_the_pack_forbids(pilot_context):
         f"{offering.name}: no side effects, 100% safe.",
         f"Our {offering.name} heals a bad day.",
     ]:
-        reason = check_guardrails(claim, slot, pack)
+        reason = check_guardrails(claim, slot, pack, pilot_context)
         assert reason is not None and reason.startswith("health claim"), claim
 
     # "weight loss" is also on the bakery pack's banned-term list — either gate
     # rejecting it is fine, what matters is that neither lets it through.
-    assert check_guardrails(f"Our {offering.name} helps with weight loss.", slot, pack)
+    assert check_guardrails(
+        f"Our {offering.name} helps with weight loss.", slot, pack, pilot_context
+    )
 
 
 def test_ordinary_bakery_wording_is_not_mistaken_for_a_health_claim(pilot_context):
@@ -106,7 +113,7 @@ def test_ordinary_bakery_wording_is_not_mistaken_for_a_health_claim(pilot_contex
         f"A healthy start to the day with our {offering.name}.",
         f"{offering.name} — baked fresh, every single day.",
     ]:
-        assert check_guardrails(innocent, slot, pack) is None, innocent
+        assert check_guardrails(innocent, slot, pack, pilot_context) is None, innocent
 
 
 def test_plan_week_fails_closed_without_offerings(pilot_context):

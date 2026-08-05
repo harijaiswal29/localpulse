@@ -4,7 +4,9 @@ by the Content Agent's offering-grounding path (review replies, nudges, broadcas
 from __future__ import annotations
 
 import re
+from collections.abc import Collection
 
+from localpulse.context.models import ClientContext
 from localpulse.packs.base import VerticalPack
 
 # Claim-shaped wording a small shop must not publish: health, medical and
@@ -40,8 +42,62 @@ def find_health_claim(text: str) -> str | None:
     return None
 
 
-def check_text_guardrails(text: str, pack: VerticalPack, noun: str = "text") -> str | None:
-    """Return a rejection reason, or None if the text is safe to show the owner."""
+# A rupee amount, in the forms a model actually writes: ₹550, ₹ 550, ₹1,100,
+# ₹99.50, Rs. 550, rs 550. Bare numbers are deliberately not matched — a caption
+# saying "20 varieties" or "open till 9" is not quoting a price.
+PRICE_PATTERN = re.compile(r"(?:₹|\bRs\.?)\s*([\d,]+(?:\.\d{1,2})?)", re.IGNORECASE)
+
+
+def prices_in(text: str) -> set[float]:
+    """Every rupee amount named in `text`, normalised to 2dp."""
+    found: set[float] = set()
+    for match in PRICE_PATTERN.finditer(text):
+        try:
+            found.add(round(float(match.group(1).replace(",", "")), 2))
+        except ValueError:  # pragma: no cover — the pattern only matches numerals
+            continue
+    return found
+
+
+def grounded_prices(ctx: ClientContext, extra: Collection[float] = ()) -> set[float]:
+    """What this shop may be quoted as charging: its own offering prices, plus any
+    amount the owner authorised for this piece of work (a discount they asked for)."""
+    prices = {round(o.price_inr, 2) for o in ctx.offerings if o.price_inr is not None}
+    prices.update(round(p, 2) for p in extra)
+    return prices
+
+
+def find_ungrounded_price(text: str, allowed_inr: Collection[float]) -> str | None:
+    """The first rupee amount in `text` the shop does not actually charge, or None.
+
+    This is the one half of invention that can be checked deterministically. Whether
+    an *item* exists needs NER or a judge model, but a price is a number, and a wrong
+    one is the expensive kind of wrong — the customer arrives expecting it.
+    """
+    allowed = {round(p, 2) for p in allowed_inr}
+    for match in PRICE_PATTERN.finditer(text):
+        try:
+            amount = round(float(match.group(1).replace(",", "")), 2)
+        except ValueError:  # pragma: no cover — the pattern only matches numerals
+            continue
+        if amount not in allowed:
+            return match.group(0).strip()
+    return None
+
+
+def check_text_guardrails(
+    text: str,
+    pack: VerticalPack,
+    ctx: ClientContext,
+    noun: str = "text",
+    extra_prices: Collection[float] = (),
+) -> str | None:
+    """Return a rejection reason, or None if the text is safe to show the owner.
+
+    `ctx` is required rather than optional because the price check is only as good
+    as its list of real prices — a call site that could quietly omit it would lose
+    the check silently, which is the failure mode this exists to prevent.
+    """
     if not text.strip():
         return f"empty {noun}"
     if len(text) > pack.guardrails.max_caption_chars:
@@ -54,4 +110,8 @@ def check_text_guardrails(text: str, pack: VerticalPack, noun: str = "text") -> 
         claim = find_health_claim(text)
         if claim is not None:
             return f"health claim: {claim}"
+    if pack.guardrails.require_price_grounding:
+        price = find_ungrounded_price(text, grounded_prices(ctx, extra_prices))
+        if price is not None:
+            return f"price the shop does not charge: {price}"
     return None

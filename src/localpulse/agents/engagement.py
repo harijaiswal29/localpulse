@@ -11,9 +11,10 @@ queued for owner approval; the Cost Guard prices it as marketing at publish time
 from __future__ import annotations
 
 import logging
+from collections.abc import Collection
 from dataclasses import asdict, dataclass
 
-from localpulse.agents.common import check_text_guardrails
+from localpulse.agents.common import check_text_guardrails, prices_in
 from localpulse.context.models import (
     ApprovalState,
     ClientContext,
@@ -185,7 +186,11 @@ class EngagementAgent:
             "One short phrase that drops into a fixed message — no greeting, no "
             "sign-off, no links, no health claims."
         )
-        offer_line = self._complete_with_guardrails(ctx, pack, prompt, system)
+        # A discount the owner asked for ("₹50 off all cakes") is not on the menu but
+        # is authorised by them naming it; a price the model adds on top is not.
+        offer_line = self._complete_with_guardrails(
+            ctx, pack, prompt, system, extra_prices=prices_in(offer)
+        )
         if offer_line is None:
             return None
         try:
@@ -297,11 +302,16 @@ class EngagementAgent:
         return f"{offering.name}{price}"
 
     def _complete_with_guardrails(
-        self, ctx: ClientContext, pack: VerticalPack, prompt: str, system: str
+        self,
+        ctx: ClientContext,
+        pack: VerticalPack,
+        prompt: str,
+        system: str,
+        extra_prices: Collection[float] = (),
     ) -> str | None:
         for attempt in range(2):
             body = self._gateway.complete(self.task_profile, prompt, system=system).strip()
-            reason = check_text_guardrails(body, pack)
+            reason = check_text_guardrails(body, pack, ctx, extra_prices=extra_prices)
             if reason is None:
                 return body
             logger.info(
