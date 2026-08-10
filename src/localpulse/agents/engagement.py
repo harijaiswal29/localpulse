@@ -14,7 +14,7 @@ import logging
 from collections.abc import Collection
 from dataclasses import asdict, dataclass
 
-from localpulse.agents.common import check_text_guardrails, prices_in
+from localpulse.agents.common import check_text_guardrails, find_unstocked_item, prices_in
 from localpulse.context.models import (
     ApprovalState,
     ClientContext,
@@ -309,9 +309,17 @@ class EngagementAgent:
         system: str,
         extra_prices: Collection[float] = (),
     ) -> str | None:
+        """The generation loop for the weekly broadcast — its only caller. The item
+        check belongs here and not in `check_text_guardrails`, which review replies
+        also use: a reply may legitimately echo a reviewer asking for something the
+        shop doesn't stock, and dropping that reply would be the wrong call."""
         for attempt in range(2):
             body = self._gateway.complete(self.task_profile, prompt, system=system).strip()
             reason = check_text_guardrails(body, pack, ctx, extra_prices=extra_prices)
+            if reason is None:
+                invented = find_unstocked_item(body, pack, ctx)
+                if invented is not None:
+                    reason = f"mentions {invented}, which the shop does not sell"
             if reason is None:
                 return body
             logger.info(

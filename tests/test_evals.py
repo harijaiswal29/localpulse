@@ -73,13 +73,21 @@ def sample(text: str, **kwargs) -> Sample:
 
 
 class PaddingProvider:
-    """A model that grounds its caption correctly and then pads it with an item the
-    shop has never sold — the failure mode the engine is structurally blind to."""
+    """A model that grounds its caption correctly and then pads it with something the
+    shop has never sold.
+
+    `item` decides which side of the line the padding falls on: a noun the pack's
+    `item_lexicon` anticipated is now rejected by the engine, while one it didn't is
+    still only visible to the eval.
+    """
+
+    def __init__(self, item: str = "fresh butter croissants"):
+        self.item = item
 
     def complete(self, prompt: str, system: str, max_tokens: int) -> str:
         facts = dict(re.findall(r"^(\w+):\s*(.+)$", prompt, flags=re.MULTILINE))
         return (
-            f"{facts.get('offering', 'Our bakes')} and fresh butter croissants at "
+            f"{facts.get('offering', 'Our bakes')} and {self.item} at "
             f"{facts.get('business', 'our shop')} — message us to order."
         )
 
@@ -103,8 +111,11 @@ class TestGroundingScorer:
         assert "₹199" in " ".join(scored.failures)
 
     def test_an_invented_offering_is_caught(self, bakery_ctx):
-        """The engine cannot catch this — its grounding check only asks that the
-        intended offering is named, not that nothing else was bolted on."""
+        """The scorer's own check, independent of what the engine does. The engine
+        now rejects a caption naming a lexicon item the shop doesn't sell, but the
+        eval must keep its own probe: a lexicon only knows the nouns someone thought
+        to list, and an eval that leans on the engine's checks can only agree with
+        them."""
         scored = score_grounding(
             sample(
                 "Chocolate truffle cake and our new butter croissants — order today.",
@@ -309,28 +320,51 @@ class TestSuitesOnTheMockProvider:
             report.failures()
         )
 
-    def test_a_model_that_pads_with_an_invented_item_is_caught_by_the_eval(self):
-        """The case for having a harness at all.
-
-        This caption passes every check the engine has: it names the real offering
-        at its real price, breaks no banned term, and stays within length — so the
-        engine hands it to the owner and, on an AUTO kind, publishes it. Only the
-        golden dataset knows the shop has never sold a croissant.
-        """
+    def _padded_report(self, item: str, cases):
         settings = make_test_settings()
         runner = EvalRunner(
             settings=settings,
             model_map={**settings.model_map(), "content": "padder"},
-            providers={"padder": PaddingProvider()},
+            providers={"padder": PaddingProvider(item)},
         )
-        report = runner.run(select(ALL_CASES, suites=["core"], agents=["content"]))
+        return runner.run(cases)
+
+    def test_a_model_padding_with_a_lexicon_item_is_contained_by_the_engine(self):
+        """`croissant` is in the bakery pack's `item_lexicon`, so this caption never
+        reaches the owner: every slot is rejected twice and dropped.
+
+        Note which dimension fails. Grounding stays clean because nothing ungrounded
+        got through — *coverage* is what collapses, and the shop's week is empty.
+        That is the honest price of containment, and the reason coverage is scored
+        at all: a model can fail without ever writing a bad caption.
+        """
+        report = self._padded_report(
+            "fresh butter croissants", [c for c in ALL_CASES if c.case_id == "bakery_week_en"]
+        )
+
+        assert report.dimension_scores()[Dimension.COVERAGE] == 0.0
+        assert not report.passed
+
+    def test_a_model_padding_with_an_unanticipated_item_is_caught_only_by_the_eval(self):
+        """The case for having a harness at all — narrower than it used to be, and
+        still the argument against `AUTO ON gbp_post` for an ungated model.
+
+        No list of nouns is complete. `biryani` is the one entry in `BAKERY_NOT_SOLD`
+        the pack's lexicon does not anticipate, so this caption passes every check
+        the engine has: real offering, real price, no banned term, within length. It
+        lands in the owner's queue, and only the golden dataset knows a bakery does
+        not sell biryani.
+        """
+        report = self._padded_report(
+            "fresh hot biryani", select(ALL_CASES, suites=["core"], agents=["content"])
+        )
 
         assert report.dimension_scores()[Dimension.COVERAGE] == 1.0  # the engine was happy
         assert report.dimension_scores()[Dimension.GUARDRAILS] == 1.0
         assert not report.passed
         assert report.dimension_scores()[Dimension.GROUNDING] < 1.0
         # the reason, not just the echoed caption — an excerpt of the text would
-        # contain "croissant" whether or not the check actually fired
+        # contain "biryani" whether or not the check actually fired
         assert "does not offer" in " ".join(report.failures())
 
     def test_a_case_that_blows_up_fails_rather_than_disappearing(self):

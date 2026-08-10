@@ -93,7 +93,9 @@ code.
 
 A new vertical pack should bring its own cases: at minimum a content week, and a
 red-team case for whatever claim wording its `banned_terms` exists to stop. The
-salon pack's `rt_beauty_claim` (permanent-results wording) is the model to copy.
+salon pack's `rt_beauty_claim` (permanent-results wording) is the model to copy. It
+should also bring an `item_lexicon` — the engine cannot guess a vertical's nouns,
+and a pack without one gets no item checking.
 
 `forbidden_mentions` is the important field and the least obvious. It lists
 plausible items the business does *not* sell — croissants for a bakery that doesn't
@@ -120,21 +122,33 @@ authorise an extra amount by naming it — a broadcast asking for "₹50 off eve
 permits ₹50 in the generated line, while a price the model adds on top of that is
 still rejected.
 
-An *item* is a noun phrase, and detecting one a shop doesn't sell inside arbitrary
-prose needs NER or a judge model. The Content Agent's grounding check asks that the
-intended offering *is named*; it cannot ask that nothing else was added. So a caption
-reading "Chocolate truffle cake ₹550 and fresh butter croissants" still passes every
-check the engine has — right item, real price, no banned term, within length — and
-goes straight into the owner's queue. `tests/test_evals.py` pins exactly that case,
-and the eval catches it only where a case declares a `forbidden_mentions` probe.
+An *item* is a noun phrase, so detecting an arbitrary invented one needs NER or a
+judge model. Instead each pack declares `Guardrails.item_lexicon` — the item
+vocabulary of its vertical — and the engine rejects any of those nouns that none of
+*this client's* offerings cover. The lexicon is the vertical's words; what is stocked
+comes from the Client Context, so the same bakery pack protects a shop that sells no
+croissants without constraining one that does. That closes the plausible cases:
+"Chocolate truffle cake ₹550 and fresh butter croissants" is now rejected before the
+owner sees it.
 
-The consequence is a narrower but still real operational constraint: **an invented
+What remains is the long tail. **A lexicon only knows the nouns someone thought to
+list**, so "fresh butter danishes" gets through if `danish` isn't in it, and the
+lexicons are English-only, so a Marathi caption transliterating an item name is
+unchecked. The gap narrowed from "any invented item" to "any invented item nobody
+anticipated" — it did not close.
+
+So the operational constraint stands, in narrower form: **an unanticipated invented
 item is caught at swap time, by this harness, or by the shop owner reading their
-approval queue.** That is an argument for keeping the probe lists honest and
-specific to each pack, and an argument against promoting `gbp_post` to auto-publish
-(`AUTO ON`) on a model that hasn't cleared the grounding dimension — particularly
-once GBP publishing stops being semi-manual, since the owner's copy-paste step is
-currently the last human read of a caption.
+approval queue.** Hence: keep the `forbidden_mentions` probes honest and specific to
+each pack — `BAKERY_NOT_SOLD`'s `biryani` is deliberately *outside* the bakery
+lexicon so `tests/test_evals.py` can keep pinning what only this harness sees — and
+don't promote `gbp_post` to auto-publish (`AUTO ON`) on a model that hasn't cleared
+the grounding dimension, particularly once GBP publishing stops being semi-manual,
+since the owner's copy-paste step is currently the last human read of a caption.
+
+A pack that declares no lexicon gets no item checking at all. That is deliberate and
+stated rather than papered over: the engine cannot guess a vertical's nouns, so
+unlike `require_price_grounding` this one cannot default on.
 
 **Multilingual grounding.** Offering names are stored as the owner typed them, in
 English, and the engine's grounding check looks for that exact string in the

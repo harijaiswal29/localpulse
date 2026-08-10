@@ -92,6 +92,13 @@ class Guardrails(BaseModel):
     # Defaults True — this is a generic engine concern, not a vertical preference,
     # so a new pack inherits it without having to know it exists.
     require_price_grounding: bool = True
+    # The item vocabulary of this vertical — nouns a customer would read as "the shop
+    # sells this". Any of these in generated copy must be covered by one of the
+    # client's own offerings, or the copy is rejected. Empty means no item checking:
+    # unlike require_price_grounding this cannot default on, because the engine has no
+    # way to guess a vertical's nouns. A pack without a lexicon gets no item
+    # protection, and inventing stays a swap-time catch (docs/evals.md).
+    item_lexicon: list[str] = []
 
 
 class VerticalPack(BaseModel):

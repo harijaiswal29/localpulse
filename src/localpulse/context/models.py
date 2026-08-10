@@ -218,6 +218,21 @@ class DraftItem(BaseModel):
     def short_id(self) -> str:
         return self.id[:8]
 
+    @property
+    def about(self) -> str:
+        """What this draft was drafted *for*, in a few words — the offering it is
+        meant to sell and the occasion it marks.
+
+        Shown to the owner above the caption. An owner skimming three captions with
+        nothing to compare them against will not notice one that drifted onto an
+        item the shop doesn't sell; the engine's lexicon check catches the nouns a
+        pack anticipated, and this is what backs it up for the ones it didn't.
+        Empty for drafts with no such context (a review reply), which then render
+        exactly as they did before.
+        """
+        bits = (self.meta.get("offering"), self.meta.get("event"))
+        return " · ".join(str(bit) for bit in bits if bit)
+
 
 class PublishedAction(BaseModel):
     """Record of a publish, always traceable to the approval that authorised it."""

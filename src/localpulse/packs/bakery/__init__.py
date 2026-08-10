@@ -242,5 +242,44 @@ PACK = VerticalPack(
         forbid_health_claims=True,
         max_caption_chars=600,
         require_offering_grounding=True,
+        # Bakery nouns a customer reads as "they sell this". Copy naming one of
+        # these that no offering covers is rejected, so a model cannot pad a real
+        # cake with croissants this shop has never baked. Curated conservatively:
+        # a false positive silently drops a post, so words with a common non-item
+        # sense are left out ("roll" as in on a roll, "puff" as in puffed up), and
+        # each word is listed in full because matching is on word boundaries —
+        # "cake" does not match inside "cheesecake".
+        item_lexicon=[
+            "cake",
+            "cheesecake",
+            "cupcake",
+            "pastry",
+            "bread",
+            "loaf",
+            "sourdough",
+            "baguette",
+            "croissant",
+            "danish",
+            "cookie",
+            "biscuit",
+            "muffin",
+            "brownie",
+            "donut",
+            "doughnut",
+            "macaron",
+            "eclair",
+            "mousse",
+            "pudding",
+            "pizza",
+            "sandwich",
+            "modak",
+            "laddu",
+            "ladoo",
+            "barfi",
+            "karanji",
+            "chakli",
+            "halwa",
+            "samosa",
+        ],
     ),
 )

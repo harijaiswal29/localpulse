@@ -267,5 +267,39 @@ PACK = VerticalPack(
         forbid_health_claims=True,
         max_caption_chars=600,
         require_offering_grounding=True,
+        # Salon service nouns. A client offering only a haircut and a facial must
+        # not be advertised as doing laser or botox — here the invented service is
+        # a regulatory problem, not just a disappointed customer. Bare "hair" and
+        # "treatment" are deliberately absent: they are this pack's `vague_terms`
+        # precisely because they are too generic to mean one service.
+        item_lexicon=[
+            "haircut",
+            "hair colour",
+            "hair color",
+            "highlights",
+            "balayage",
+            "keratin",
+            "smoothening",
+            "straightening",
+            "rebonding",
+            "facial",
+            "cleanup",
+            "bleach",
+            "threading",
+            "waxing",
+            "pedicure",
+            "manicure",
+            "nail extension",
+            "nail art",
+            "hair spa",
+            "head massage",
+            "botox",
+            "laser",
+            "tattoo",
+            "piercing",
+            "makeup",
+            "mehendi",
+            "henna",
+        ],
     ),
 )

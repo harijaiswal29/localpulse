@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Collection
+from functools import lru_cache
 
 from localpulse.context.models import ClientContext
 from localpulse.packs.base import VerticalPack
@@ -83,6 +84,50 @@ def find_ungrounded_price(text: str, allowed_inr: Collection[float]) -> str | No
         if amount not in allowed:
             return match.group(0).strip()
     return None
+
+
+@lru_cache(maxsize=512)
+def _item_pattern(term: str) -> re.Pattern[str]:
+    """Word-boundary matcher for one lexicon term, tolerating a plural and loose
+    spacing in a multi-word term. Boundaries matter: `cake` must not fire inside
+    "cheesecake", so a pack lists both words separately."""
+    words = r"\s+".join(re.escape(word) for word in term.split())
+    return re.compile(rf"\b{words}(?:s|es)?\b", re.IGNORECASE)
+
+
+def find_unstocked_item(text: str, pack: VerticalPack, ctx: ClientContext) -> str | None:
+    """The first item noun in `text` that none of this shop's offerings cover, or None.
+
+    The other half of invention, and the half a number can't settle: the Content
+    Agent's grounding check asks that the intended offering *is named*, never that
+    nothing else was added, so "Chocolate truffle cake ₹550 and fresh butter
+    croissants" is otherwise clean. Detecting an arbitrary invented noun needs NER or
+    a judge model; a pack-declared vocabulary catches the plausible ones for free.
+
+    Deliberately lenient — a false positive silently drops a shop's post, which is
+    worse than a miss the owner still gets to see.
+    """
+    lexicon = pack.guardrails.item_lexicon
+    if not lexicon:
+        return None
+    sold = " | ".join(offering.name.lower() for offering in ctx.offerings)
+    haystack = _without_business_name(text, ctx)
+    for term in lexicon:
+        if term.lower() in sold:
+            continue  # the shop really does sell this
+        match = _item_pattern(term).search(haystack)
+        if match is not None:
+            return match.group(0).strip()
+    return None
+
+
+def _without_business_name(text: str, ctx: ClientContext) -> str:
+    """A shop may be named after something it doesn't sell — "The Nail Bar" must not
+    trip its own lexicon."""
+    name = ctx.business.name.strip()
+    if not name:
+        return text
+    return re.sub(re.escape(name), " ", text, flags=re.IGNORECASE)
 
 
 def check_text_guardrails(

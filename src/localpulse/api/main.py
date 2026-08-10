@@ -188,8 +188,15 @@ def _handle_owner_command(
         lines = ["Drafts waiting for approval:"]
         for draft in pending:
             flag = "⚠️ " if draft.meta.get("escalated") else ""
-            when = f"{draft.scheduled_for}: " if draft.scheduled_for else ""
-            lines.append(f"\n{flag}[{draft.short_id}] {when}{draft.caption}")
+            head = f"{flag}[{draft.short_id}]"
+            if draft.scheduled_for:
+                head += f" {draft.scheduled_for}"
+            # what the post is meant to be about, so copy that drifted onto
+            # something the shop doesn't sell stands out against it
+            if draft.about:
+                lines.append(f"\n{head} · {draft.about}\n{draft.caption}")
+            else:
+                lines.append(f"\n{head}{': ' if draft.scheduled_for else ' '}{draft.caption}")
         return "\n".join(lines)
 
     if command in {"approve", "edit", "skip"} and len(words) >= 2:

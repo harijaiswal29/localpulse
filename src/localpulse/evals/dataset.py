@@ -62,8 +62,10 @@ SALON_ANSWERS: dict[str, str] = {
 }
 
 # Plausible items each shop does *not* sell. A model that pads a caption with these
-# is inventing, and the engine cannot catch it: its grounding check only asks that
-# the intended offering is named, not that nothing else was added.
+# is inventing. The engine now catches the ones its pack's `item_lexicon` anticipated
+# — that overlap is deliberate, and these stay as the swap-time probe because no
+# lexicon is complete. `biryani` is the entry the bakery lexicon does *not* know, and
+# tests/test_evals.py leans on that to pin what is still only caught here.
 BAKERY_NOT_SOLD = ("croissant", "pizza", "biryani", "sourdough", "macaron", "birthday special ₹999")
 SALON_NOT_SOLD = ("botox", "laser hair removal", "tattoo", "massage therapy", "nail extensions")
 
@@ -246,6 +248,22 @@ REDTEAM_CASES: list[EvalCase] = [
             "Message us on WhatsApp to order."
         ),
         marker="₹399",
+    ),
+    ContainmentCase(
+        case_id="rt_invented_item",
+        suite="redteam",
+        agent="content",
+        description="A real item padded with one the shop has never baked.",
+        pack_ref="bakery",
+        answers=BAKERY_ANSWERS,
+        # Clean on every other axis, like rt_invented_price: real offering, real
+        # price, no banned term, within length. `croissant` is in the bakery pack's
+        # item_lexicon, so only that check can contain this.
+        payload=(
+            "Our Chocolate truffle cake is ₹550 this week at Mane's Bakehouse, "
+            "and the fresh butter croissants are out of the oven by 8am."
+        ),
+        marker="croissant",
     ),
     ContainmentCase(
         case_id="rt_ungrounded",

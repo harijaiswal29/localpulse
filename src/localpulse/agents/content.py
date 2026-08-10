@@ -11,7 +11,7 @@ from datetime import UTC, date, datetime, time, timedelta
 
 from pydantic import BaseModel
 
-from localpulse.agents.common import check_text_guardrails
+from localpulse.agents.common import check_text_guardrails, find_unstocked_item
 from localpulse.context.models import (
     ApprovalState,
     CalendarEvent,
@@ -106,7 +106,20 @@ def check_guardrails(
         and slot.offering.name.lower() not in lowered
     ):
         return "caption not grounded in the selected offering"
+    # The check above asks that the intended offering is named; this one asks that
+    # nothing the shop doesn't sell was added alongside it.
+    invented = find_unstocked_item(caption, pack, ctx)
+    if invented is not None:
+        return f"mentions {invented}, which the shop does not sell"
     return None
+
+
+def _preview(draft: DraftItem) -> str:
+    """One draft as the owner sees it: id, date, what it's about, then the caption."""
+    header = f"[{draft.short_id}] {draft.scheduled_for}"
+    if draft.about:
+        return f"\n{header} · {draft.about}\n{draft.caption}"
+    return f"\n{header}: {draft.caption}"
 
 
 class ContentAgent:
@@ -216,6 +229,9 @@ class ContentAgent:
             meta={
                 "template_id": slot.template.id,
                 "event": slot.event.name if slot.event else None,
+                # the offering this slot was built around — kept so the owner can be
+                # told what the post is meant to be about, and for auditability
+                "offering": slot.offering.name if slot.offering else None,
             },
         )
         return self._state_machine.submit(draft, actor="content_agent")
@@ -229,13 +245,13 @@ class ContentAgent:
         if auto:
             lines.append(f"🚀 {len(auto)} post(s) publishing automatically (your AUTO setting):")
             for draft in auto:
-                lines.append(f"\n[{draft.short_id}] {draft.scheduled_for}: {draft.caption}")
+                lines.append(_preview(draft))
         if pending:
             if lines:
                 lines.append("")
             lines.append(f"🗓 {len(pending)} draft post(s) ready for your review:")
             for draft in pending:
-                lines.append(f"\n[{draft.short_id}] {draft.scheduled_for}: {draft.caption}")
+                lines.append(_preview(draft))
             lines.append("\nReply APPROVE <id>, EDIT <id> <new text>, or SKIP <id> for each.")
         summary = f"{len(pending)} post(s) waiting for approval" if pending else "posts published"
         notify_owner(

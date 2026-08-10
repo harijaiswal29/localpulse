@@ -66,9 +66,13 @@ The full slice runs for two verticals — **bakery** (Family 1, products) and
   twice
 - **Price grounding** (P3) — no generated caption, review reply or offer line may
   quote a rupee amount the shop doesn't actually charge; a discount the owner asks
-  for is authorised by them naming it. Invented *prices* are a set-membership test
-  and are blocked at runtime; invented *items* need the eval harness, which is why
-  auto-publish is a considered choice rather than a default
+  for is authorised by them naming it
+- **Item grounding** (P3) — each pack declares its vertical's item vocabulary, and
+  copy naming one of those items that the shop's own offerings don't cover is
+  rejected before the owner sees it, so a real cake can't be padded with croissants
+  the bakery never baked. A lexicon only knows the nouns someone listed, so the
+  harness and the owner's read stay the backstop — which is why the owner's approval
+  digest now names what each post is *meant* to be about
 - **Eval harness** (P3) — the gate for changing a model or a prompt: a golden dataset
   runs the real agents through the real engine and scores what reaches the owner for
   grounding (no invented items or prices), language (Marathi/Hindi/English), guardrail
@@ -146,11 +150,11 @@ curl -X PUT localhost:8000/clients/pilot-1/approval-preferences \
 ## Quality
 
 ```bash
-pytest                        # 234 tests: state machine, cost guard, packs, tenant
+pytest                        # 250 tests: state machine, cost guard, packs, tenant
                               # isolation, content eval, reputation, engagement,
                               # salon pack, worker hardening, approval prefs,
                               # WhatsApp templates + consent, retry/partial
-                              # delivery, eval harness, price grounding, e2e
+                              # delivery, eval harness, price + item grounding, e2e
 ruff check . && ruff format .
 
 python scripts/run_evals.py                            # score the configured models
