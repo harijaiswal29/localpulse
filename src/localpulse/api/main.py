@@ -10,6 +10,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 
 from localpulse.agents.content import ContentTrigger
+from localpulse.agents.onboarding import OnboardingIncompleteError
 from localpulse.config import Settings
 from localpulse.container import ClientServices, Container
 from localpulse.context.models import ApprovalState, DraftItem, DraftKind, TemplateSlot
@@ -23,7 +24,7 @@ from localpulse.orchestrator.templates import (
     TemplateRenderError,
     rerender,
 )
-from localpulse.packs.base import load_pack
+from localpulse.packs.base import PackLoadError, load_pack
 from localpulse.tools.whatsapp import OutboundTemplate
 
 _KIND_NAMES = ", ".join(kind.value for kind in DraftKind)
@@ -261,8 +262,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/clients/{client_id}/onboard")
     def onboard(client_id: str, request: OnboardRequest, session=Depends(get_session)) -> dict:
+        """Both failure modes here are the caller's to fix, so both name what is
+        wrong: an unknown pack, or which required answers are still missing."""
         agent = container.onboarding_agent(session)
-        context = agent.run(client_id, request.pack_ref, request.answers)
+        try:
+            context = agent.run(client_id, request.pack_ref, request.answers)
+        except PackLoadError as exc:
+            raise HTTPException(422, str(exc)) from None
+        except OnboardingIncompleteError as exc:
+            raise HTTPException(422, {"error": str(exc), "missing": exc.missing}) from None
         container.ensure_client_tools(context)
         return context.model_dump(mode="json")
 

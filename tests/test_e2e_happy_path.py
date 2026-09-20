@@ -5,6 +5,7 @@ no real external calls (spec §12.2)."""
 from fastapi.testclient import TestClient
 
 from localpulse.api.main import create_app
+from localpulse.packs.base import load_pack
 from tests.conftest import PILOT_ANSWERS, make_test_settings
 
 OWNER = PILOT_ANSWERS["owner_whatsapp"]
@@ -103,3 +104,36 @@ def test_double_approve_is_safe():
         "/webhooks/whatsapp", json={"from_number": OWNER, "text": f"APPROVE {short_id}"}
     ).json()["reply"]
     assert "already published" in second.lower()
+
+
+def test_incomplete_onboarding_answers_are_a_client_error():
+    """A missing required answer is the caller's mistake, not a server fault: it
+    comes back as 422 naming the fields, so a self-serve form can highlight them."""
+    client = make_client()
+    response = client.post(
+        "/clients/pilot-1/onboard",
+        json={"pack_ref": "salon", "answers": {"city": "Pune"}},
+    )
+    assert response.status_code == 422, response.text
+    detail = response.json()["detail"]
+    expected = {q.id for q in load_pack("salon").onboarding_questions if q.required} - {"city"}
+    assert set(detail["missing"]) == expected
+    assert "salon_name" in detail["error"]
+
+
+def test_unknown_pack_ref_is_a_client_error():
+    client = make_client()
+    response = client.post(
+        "/clients/pilot-1/onboard", json={"pack_ref": "butcher", "answers": PILOT_ANSWERS}
+    )
+    assert response.status_code == 422, response.text
+    assert "butcher" in response.json()["detail"]
+
+
+def test_malformed_pack_ref_is_rejected_not_traversed():
+    client = make_client()
+    response = client.post(
+        "/clients/pilot-1/onboard", json={"pack_ref": "../evil", "answers": PILOT_ANSWERS}
+    )
+    assert response.status_code == 422, response.text
+    assert "invalid pack ref" in response.json()["detail"]
